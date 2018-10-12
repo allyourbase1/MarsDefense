@@ -1,0 +1,328 @@
+00001000 Starting Address
+Assembler used: EASy68K Editor/Assembler v5.16.01
+Created On: 10/7/2018 3:03:10 PM
+
+00000000                             1  *-----------------------------------------------------------
+00000000                             2  * Title      : High Score
+00000000                             3  * Written by : Joshua Newell
+00000000                             4  * Date       : 10/7/18
+00000000                             5  * Description:
+00000000                             6  *-----------------------------------------------------------
+00000000                             7  ALL_REG             REG d0-d7/a0-a6
+00000000  =00000005                  8  NUM_SCORE_ENTRIES   EQU 5
+00000000  =00000003                  9  NAME_LENGTH         EQU 3
+00000000                            10  
+00000000  =00000020                 11  SPACE_CHAR_ASCII    EQU $20
+00000000                            12  
+00000000  =0000000E                 13  PRINT_STRING_TASK   EQU 14
+00000000  =00000006                 14  PRINT_CHAR_TASK     EQU 6
+00000000  =00000005                 15  GET_CHAR_TASK       EQU 5
+00000000  =0000000F                 16  PRINT_NUMBER_TASK   EQU 15
+00000000  =0000000B                 17  SET_CURSOR_TASK     EQU 11
+00000000  =0000001F                 18  CURSOR_COLUMN       EQU 31
+00000000  =0000000C                 19  CURSOR_ROW          EQU 12
+00000000  =00000033                 20  OPEN_FILE_TASK      EQU 51
+00000000  =00000035                 21  READ_FILE_TASK      EQU 53
+00000000  =00000036                 22  WRITE_FILE_TASK     EQU 54
+00000000  =00000037                 23  POSITION_FILE_TASK  EQU 55
+00000000  =00000032                 24  CLOSE_FILES_TASK    EQU 50
+00000000  =00000007                 25  CHECK_INPUT_TASK    EQU 7
+00000000                            26  
+00000000  =00000013                 27  CURSOR_INPUT_ROW    EQU CURSOR_ROW+NUM_SCORE_ENTRIES+2
+00000000  =0000001A                 28  CURSOR_INPUT_COLUMN EQU CURSOR_COLUMN-5
+00000000                            29  
+00000000                            30  DisplayScores:
+00000000  48E7 FFFE                 31      movem.l ALL_REG,-(a7)
+00000004  7005                      32      move.l  #GET_CHAR_TASK,d0
+00000006  4E4F                      33      trap    #15
+00000008                            34      
+00000008  7033                      35      move.l  #OPEN_FILE_TASK,d0
+0000000A  43F9 000001A8             36      lea     HighScoreFileName,a1
+00000010  4E4F                      37      trap    #15
+00000012  23C1 000001B8             38      move.l  d1,FileID
+00000018                            39      
+00000018  7035                      40      move.l  #READ_FILE_TASK,d0
+0000001A  43F9 000001BC             41      lea     HighScoreFile,a1
+00000020  7428                      42      move.l  #NUM_SCORE_ENTRIES*8,d2
+00000022  4E4F                      43      trap    #15
+00000024                            44      
+00000024  41F9 000001BC             45      lea     HighScoreFile,a0
+0000002A  2648                      46      move.l  a0,a3
+0000002C  45F9 0000020C             47      lea     TableIndexStrings,a2
+00000032  4DF9 000001E4             48      lea     TempScoreFile,a6
+00000038  7E04                      49      move.l  #NUM_SCORE_ENTRIES-1,d7
+0000003A                            50      
+0000003A                            51  LoadScore:
+0000003A  2010                      52      move.l  (a0),d0
+0000003C                            53      
+0000003C  0C79 0000 00000222        54      cmp.w   #0,HaveUsedScore
+00000044  6600 0020                 55      bne     UseTableScore
+00000048                            56      
+Line 57 ERROR: Undefined symbol
+00000048  B0B9 004DBD16             57      cmp.l   Score,d0
+0000004E  6E00 0016                 58      bgt     UseTableScore
+00000052                            59      
+Line 60 ERROR: Undefined symbol
+00000052  2039 004DBD16             60      move.l  Score,d0
+00000058  2CC0                      61      move.l  d0,(a6)+
+0000005A  4EB9 00000140             62      jsr     GetPlayerName
+00000060  2CC1                      63      move.l  d1,(a6)+
+00000062  6000 0012                 64      bra     PrintEntry
+00000066                            65      
+00000066                            66  UseTableScore
+00000066  5888                      67      add.l   #4,a0
+00000068                            68      
+00000068  2CC0                      69      move.l  d0,(a6)+
+0000006A                            70      
+0000006A  7C03                      71      move.l  #NAME_LENGTH,d6
+0000006C                            72      
+0000006C                            73  LoadName:
+0000006C  E189                      74      lsl.l   #8,d1
+0000006E  1218                      75      move.b  (a0)+,d1
+00000070  51CE FFFA                 76      dbra    d6,LoadName
+00000074                            77      
+00000074  2CC1                      78      move.l  d1,(a6)+
+00000076                            79  
+00000076                            80  PrintEntry:
+00000076  2F00                      81      move.l  d0,-(a7)
+00000078  2F01                      82      move.l  d1,-(a7)
+0000007A                            83      
+0000007A  700B                      84      move.l  #SET_CURSOR_TASK,d0
+0000007C  123C 001F                 85      move.b  #CURSOR_COLUMN,d1
+00000080  E189                      86      lsl.l   #8,d1
+00000082  123C 000C                 87      move.b  #CURSOR_ROW,d1
+00000086  D279 00000220             88      add.w   CurrentTableIndex,d1
+0000008C  4E4F                      89      trap    #15
+0000008E  5279 00000220             90      add.w   #1,CurrentTableIndex
+00000094                            91      
+00000094  221F                      92      move.l  (a7)+,d1
+00000096                            93      
+00000096  224A                      94      move.l  a2,a1
+00000098  588A                      95      add.l   #4,a2
+0000009A  700E                      96      move.l  #PRINT_STRING_TASK,d0
+0000009C  4E4F                      97      trap    #15
+0000009E                            98      
+0000009E  2001                      99      move.l  d1,d0
+Line 100 ERROR: Undefined symbol
+000000A0  4EB9 004DBD16            100      jsr     ByteSwap
+000000A6  2200                     101      move.l  d0,d1
+000000A8  7006                     102      move.l  #PRINT_CHAR_TASK,d0
+000000AA  4E4F                     103      trap    #15
+000000AC  E089                     104      lsr.l   #8,d1
+000000AE  4E4F                     105      trap    #15
+000000B0  E089                     106      lsr.l   #8,d1
+000000B2  4E4F                     107      trap    #15
+000000B4                           108      
+000000B4  7220                     109      move.l  #SPACE_CHAR_ASCII,d1
+000000B6  4E4F                     110      trap    #15
+000000B8  4E4F                     111      trap    #15
+000000BA  4E4F                     112      trap    #15
+000000BC                           113      
+000000BC  2217                     114      move.l  (a7),d1
+000000BE  2001                     115      move.l  d1,d0
+000000C0                           116      
+000000C0  7C07                     117      move.l  #7,d6
+000000C2                           118     
+000000C2                           119  CountDigits:
+000000C2  2400                     120      move.l  d0,d2
+000000C4  2A06                     121      move.l  d6,d5
+000000C6  5385                     122      sub.l   #1,d5
+000000C8                           123      
+000000C8                           124  ShiftNumber:
+000000C8  E88A                     125      lsr.l   #4,d2
+000000CA  51CD FFFC                126      dbra    d5,ShiftNumber
+000000CE                           127      
+000000CE  C4BC 0000000F            128      and.l   #$F,d2
+000000D4  B43C 0000                129      cmp.b   #0,d2
+000000D8  6600 0006                130      bne     SetPadding
+000000DC  51CE FFE4                131      dbra    d6,CountDigits
+000000E0                           132      
+000000E0                           133  SetPadding:
+000000E0  7A07                     134      move.l  #7,d5
+000000E2  9A86                     135      sub.l   d6,d5
+000000E4  6700 000E                136      beq     PrintScore
+000000E8  5385                     137      sub.l   #1,d5
+000000EA                           138      
+000000EA                           139  PrintPadding:
+000000EA  7220                     140      move.l  #SPACE_CHAR_ASCII,d1
+000000EC  7006                     141      move.l  #PRINT_CHAR_TASK,d0
+000000EE  4E4F                     142      trap    #15
+000000F0  51CD FFF8                143      dbra    d5,PrintPadding
+000000F4                           144      
+000000F4                           145  PrintScore:
+000000F4  221F                     146      move.l  (a7)+,d1
+000000F6  7410                     147      move.l  #16,d2
+000000F8  700F                     148      move.l  #PRINT_NUMBER_TASK,d0
+000000FA  4E4F                     149      trap    #15
+000000FC                           150      
+000000FC                           151  NextScore:
+000000FC  51CF FF3C                152      dbra    d7,LoadScore
+00000100                           153      
+00000100                           154  SaveScores:    
+00000100  43F9 000001E4            155      lea     TempScoreFile,a1
+00000106  2239 000001B8            156      move.l  FileID,d1
+0000010C  7037                     157      move.l  #POSITION_FILE_TASK,d0
+0000010E  7400                     158      move.l  #0,d2
+00000110  4E4F                     159      trap    #15
+00000112                           160      
+00000112  7428                     161      move.l  #NUM_SCORE_ENTRIES*8,d2
+00000114  7036                     162      move.l  #WRITE_FILE_TASK,d0
+00000116  4E4F                     163      trap    #15
+00000118                           164      
+00000118  7032                     165      move.l  #CLOSE_FILES_TASK,d0
+0000011A  4E4F                     166      trap    #15
+0000011C                           167    
+0000011C                           168  WaitingForInput:
+0000011C  700B                     169      move.l  #SET_CURSOR_TASK,d0
+0000011E  123C 001A                170      move.b  #CURSOR_INPUT_COLUMN,d1
+00000122  E189                     171      lsl.l   #8,d1
+00000124  123C 0013                172      move.b  #CURSOR_INPUT_ROW,d1
+00000128  4E4F                     173      trap    #15
+0000012A                           174  
+0000012A  700E                     175      move.l  #PRINT_STRING_TASK,d0
+0000012C  43F9 00000224            176      lea     WaitInputString,a1
+00000132  4E4F                     177      trap    #15
+00000134  4EB9 0000018A            178      jsr     AwaitInput
+0000013A                           179      
+0000013A                           180  EndDisplayScores:
+0000013A  4CDF 7FFF                181      movem.l (a7)+,ALL_REG
+0000013E  4E75                     182      rts
+00000140                           183      
+00000140                           184  GetPlayerName:
+00000140  2F00                     185      move.l  d0,-(a7)
+00000142  48E7 0300                186      movem.l d6/d7,-(a7) 
+00000146                           187      
+00000146                           188  ************************************
+00000146                           189  * MUCH OF THIS NEEDS TO BE DELETED AFTER IMPLEMENTING DEATH STATE BEFORE DISPLAYING HIGH SCORE SCREEN
+00000146  700B                     190      move.l  #SET_CURSOR_TASK,d0
+00000148  123C 001F                191      move.b  #CURSOR_COLUMN,d1
+0000014C  E189                     192      lsl.l   #8,d1
+0000014E  123C 000C                193      move.b  #CURSOR_ROW,d1
+00000152  D279 00000220            194      add.w   CurrentTableIndex,d1
+00000158  4E4F                     195      trap    #15
+0000015A                           196      
+0000015A  224A                     197      move.l  a2,a1
+0000015C  700E                     198      move.l  #PRINT_STRING_TASK,d0
+0000015E  4E4F                     199      trap    #15
+00000160                           200  
+Line 201 ERROR: Undefined symbol
+00000160  4EB9 004DBD16            201      jsr     PaintScreen
+00000166                           202      
+00000166  4286                     203      clr.l   d6
+00000168                           204      
+00000168  7005                     205      move.l  #GET_CHAR_TASK,d0
+0000016A  7E02                     206      move.l  #NAME_LENGTH-1,d7
+0000016C                           207  *    trap    #15
+0000016C                           208  *    move.l  #SET_CURSOR_TASK,d0
+0000016C                           209  *    move.l  #$00FF,d1
+0000016C                           210  *    trap    #15
+0000016C                           211  *    sub.l   #$100,d1
+0000016C                           212  *    trap    #15
+0000016C                           213  *************************************
+0000016C  7005                     214      move.l  #GET_CHAR_TASK,d0
+0000016E                           215      
+0000016E                           216  GetPlayerNameInner:
+0000016E  4E4F                     217      trap    #15
+00000170  1C01                     218      move.b  d1,d6
+00000172                           219      
+00000172  E18E                     220      lsl.l   #8,d6    
+00000174  51CF FFF8                221      dbra    d7,GetPlayerNameInner
+00000178                           222      
+00000178  2206                     223      move.l  d6,d1
+0000017A                           224      
+0000017A  33FC 0001 00000222       225      move.w  #1,HaveUsedScore
+00000182  4CDF 00C0                226      movem.l (a7)+,d6/d7
+00000186  201F                     227      move.l  (a7)+,d0
+00000188  4E75                     228      rts
+0000018A                           229      
+0000018A                           230  AwaitInput:
+0000018A  48E7 FFFE                231      movem.l ALL_REG,-(a7)
+Line 232 ERROR: Undefined symbol
+0000018E  4EB9 004DBD16            232      jsr     PaintScreen
+00000194                           233      
+00000194                           234  AwaitInputInner:
+00000194  7007                     235      move.l  #CHECK_INPUT_TASK,d0
+00000196  4E4F                     236      trap    #15
+00000198                           237      
+00000198  B23C 0001                238      cmp.b   #1,d1
+0000019C  6700 0004                239      beq     EndAwaitInput
+000001A0  60F2                     240      bra     AwaitInputInner
+000001A2                           241      
+000001A2                           242  EndAwaitInput:
+000001A2  4CDF 7FFF                243      movem.l (a7)+,ALL_REG
+000001A6  4E75                     244      rts
+000001A8                           245  
+000001A8= 48 69 67 68 53 63 ...    246  HighScoreFileName   dc.b    'HighScores.dat',0,0
+000001B8= 00000000                 247  FileID              dc.l    0
+000001BC                           248  
+000001BC                           249  HighScoreFile       ds.b    NUM_SCORE_ENTRIES*8
+000001E4                           250  TempScoreFile       ds.b    NUM_SCORE_ENTRIES*8
+0000020C                           251  
+0000020C= 31 2E 20 00              252  TableIndexStrings   dc.b    '1. ',0
+00000210= 32 2E 20 00              253                      dc.b    '2. ',0
+00000214= 33 2E 20 00              254                      dc.b    '3. ',0
+00000218= 34 2E 20 00              255                      dc.b    '4. ',0
+0000021C= 35 2E 20 00              256                      dc.b    '5. ',0
+00000220                           257                      
+00000220= 0000                     258  CurrentTableIndex   dc.w    0                 
+00000222= 0000                     259  HaveUsedScore       dc.w    0
+00000224                           260  
+00000224= 50 72 65 73 73 20 ...    261  WaitInputString     dc.b    'Press any key to play again!',0,0
+00000242                           262  
+00000242                           263  
+00000242                           264  
+Line 265 WARNING: END directive missing, starting address not set
+
+5 errors detected
+1 warning generated
+
+
+SYMBOL TABLE INFORMATION
+Symbol-name         Value
+-------------------------
+ALL_REG             7FFF
+AWAITINPUT          18A
+AWAITINPUTINNER     194
+CHECK_INPUT_TASK    7
+CLOSE_FILES_TASK    32
+COUNTDIGITS         C2
+CURRENTTABLEINDEX   220
+CURSOR_COLUMN       1F
+CURSOR_INPUT_COLUMN  1A
+CURSOR_INPUT_ROW    13
+CURSOR_ROW          C
+DISPLAYSCORES       0
+ENDAWAITINPUT       1A2
+ENDDISPLAYSCORES    13A
+FILEID              1B8
+GETPLAYERNAME       140
+GETPLAYERNAMEINNER  16E
+GET_CHAR_TASK       5
+HAVEUSEDSCORE       222
+HIGHSCOREFILE       1BC
+HIGHSCOREFILENAME   1A8
+LOADNAME            6C
+LOADSCORE           3A
+NAME_LENGTH         3
+NEXTSCORE           FC
+NUM_SCORE_ENTRIES   5
+OPEN_FILE_TASK      33
+POSITION_FILE_TASK  37
+PRINTENTRY          76
+PRINTPADDING        EA
+PRINTSCORE          F4
+PRINT_CHAR_TASK     6
+PRINT_NUMBER_TASK   F
+PRINT_STRING_TASK   E
+READ_FILE_TASK      35
+SAVESCORES          100
+SETPADDING          E0
+SET_CURSOR_TASK     B
+SHIFTNUMBER         C8
+SPACE_CHAR_ASCII    20
+TABLEINDEXSTRINGS   20C
+TEMPSCOREFILE       1E4
+USETABLESCORE       66
+WAITINGFORINPUT     11C
+WAITINPUTSTRING     224
+WRITE_FILE_TASK     36

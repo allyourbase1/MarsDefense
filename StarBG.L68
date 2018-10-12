@@ -1,0 +1,227 @@
+00001000 Starting Address
+Assembler used: EASy68K Editor/Assembler v5.16.01
+Created On: 10/7/2018 7:12:51 PM
+
+00000000                             1  *-----------------------------------------------------------
+00000000                             2  * Title      : Star Background
+00000000                             3  * Written by : Joshua Newell
+00000000                             4  * Date       : 10/3/18
+00000000                             5  * Description:
+00000000                             6  *-----------------------------------------------------------
+00000000  =000000C8                  7  NUM_SMALL_STARS     EQU 200
+00000000  =00000064                  8  NUM_LARGE_STARS     EQU 100
+00000000  =00FFFFFF                  9  STAR_COLOR          EQU $00FFFFFF
+00000000  =00000000                 10  SPACE_COLOR         EQU $00000000
+00000000  =00000001                 11  PARALLAX_AMOUNT     EQU 1
+00000000  =00000001                 12  OFFSET_PER_FRAME    EQU 1
+00000000                            13  
+00000000  =00000001                 14  STAR_SIZE_SMALL     EQU 1
+00000000  =00000002                 15  STAR_SIZE_LARGE     EQU 2
+00000000                            16  
+00000000  =00000058                 17  DRAW_CIRCLE_TASK    EQU 88
+00000000  =00000051                 18  SET_FILL_TASK       EQU 81
+00000000  =00000050                 19  SET_PEN_TASK        EQU 80
+00000000  =00000021                 20  GET_RES_TASK        EQU 33
+00000000                            21      
+00000000                            22  InitStars:
+00000000  223C 00FFFFFF             23      move.l          #STAR_COLOR,d1
+00000006  7050                      24      move.l          #SET_PEN_TASK,d0
+00000008  4E4F                      25      trap            #15
+0000000A                            26      
+0000000A  7051                      27      move.l          #SET_FILL_TASK,d0
+0000000C  4E4F                      28      trap            #15
+0000000E                            29      
+Line 30 ERROR: Undefined symbol
+0000000E  4EB9 004DBD16             30      jsr             SeedRandomNumber
+00000014                            31  
+00000014  2E3C 000000C8             32      move.l          #NUM_SMALL_STARS,d7
+0000001A  5387                      33      sub.l           #1,d7
+0000001C  41F9 000001A6             34      lea             StarArraySmallX,a0
+00000022  43F9 00000336             35      lea             StarArraySmallY,a1
+00000028  4281                      36      clr.l           d1
+0000002A  33FC 0001 00000656        37      move.w          #STAR_SIZE_SMALL,CurrentSize
+00000032  4EB9 0000005A             38      jsr             InitStarsLoop
+00000038                            39      
+00000038  7E64                      40      move.l          #NUM_LARGE_STARS,d7
+0000003A  5387                      41      sub.l           #1,d7
+0000003C  41F9 000004C6             42      lea             StarArrayLargeX,a0
+00000042  43F9 0000058E             43      lea             StarArrayLargeY,a1
+00000048  4281                      44      clr.l           d1
+0000004A  33FC 0002 00000656        45      move.w          #STAR_SIZE_LARGE,CurrentSize
+00000052  4EB9 0000005A             46      jsr             InitStarsLoop
+00000058  4E75                      47      rts
+0000005A                            48  
+0000005A                            49  InitStarsLoop:
+Line 50 ERROR: Undefined symbol
+0000005A  4EB9 004DBD16             50      jsr             GetRandomByteIntoD6
+00000060  E14E                      51      lsl             #8,d6
+00000062  3A06                      52      move.w          d6,d5
+Line 53 ERROR: Undefined symbol
+00000064  4EB9 004DBD16             53      jsr             GetRandomByteIntoD6
+0000006A  DC45                      54      add.w           d5,d6
+Line 55 ERROR: Undefined symbol
+0000006C  303C BD16                 55      move.w          #SCREEN_WIDTH,d0
+00000070  8CC0                      56      divu            d0,d6
+00000072  4846                      57      swap            d6
+00000074                            58      
+00000074  3206                      59      move.w          d6,d1
+00000076  30C1                      60      move.w          d1,(a0)+
+00000078  2601                      61      move.l          d1,d3
+0000007A  D679 00000656             62      add.w           CurrentSize,d3
+00000080                            63      
+Line 64 ERROR: Undefined symbol
+00000080  4EB9 004DBD16             64      jsr             GetRandomByteIntoD6
+00000086  E14E                      65      lsl             #8,d6
+00000088  3A06                      66      move.w          d6,d5
+Line 67 ERROR: Undefined symbol
+0000008A  4EB9 004DBD16             67      jsr             GetRandomByteIntoD6
+00000090  DC45                      68      add.w           d5,d6
+Line 69 ERROR: Undefined symbol
+00000092  303C BD16                 69      move.w          #SCREEN_HEIGHT,d0
+Line 70 ERROR: Undefined symbol
+00000096  0440 BD16                 70      sub.w           #GROUND_HEIGHT,d0
+Line 71 ERROR: Undefined symbol
+0000009A  0440 BD16                 71      sub.w           #HEADER_HEIGHT,d0
+0000009E  9079 00000656             72      sub.w           CurrentSize,d0
+000000A4  8CC0                      73      divu            d0,d6
+000000A6  4846                      74      swap            d6
+000000A8                            75      
+000000A8  3406                      76      move.w          d6,d2
+Line 77 ERROR: Undefined symbol
+000000AA  0642 BD16                 77      add.w           #HEADER_HEIGHT,d2
+000000AE  D479 00000656             78      add.w           CurrentSize,d2
+000000B4  32C2                      79      move.w          d2,(a1)+
+000000B6  2802                      80      move.l          d2,d4
+000000B8  9879 00000656             81      sub.w           CurrentSize,d4
+000000BE                            82      
+000000BE  7058                      83      move.l          #DRAW_CIRCLE_TASK,d0
+000000C0  4E4F                      84      trap            #15
+000000C2                            85      
+000000C2  51CF FF96                 86      dbra            d7,InitStarsLoop
+000000C6  4E75                      87      rts
+000000C8                            88      
+000000C8                            89  UpdateStars:
+000000C8  48E7 FFFE                 90      movem.l         d0-d7/a0-a6,-(a7)
+000000CC  33FC 0001 00000658        91      move.w          #OFFSET_PER_FRAME,BackgroundOffset
+000000D4  4EB9 000000EE             92      jsr             UpdateSmallStars
+000000DA  4EB9 00000116             93      jsr             UpdateLargeStars
+000000E0  33FC 0000 00000658        94      move.w          #0,BackgroundOffset
+000000E8  4CDF 7FFF                 95      movem.l         (a7)+,d0-d7/a0-a6
+000000EC  4E75                      96      rts
+000000EE                            97      
+000000EE                            98  UpdateSmallStars:
+000000EE  2E3C 000000C8             99      move.l          #NUM_SMALL_STARS,d7
+000000F4  5387                     100      sub.l           #1,d7
+000000F6  41F9 000001A6            101      lea             StarArraySmallX,a0
+000000FC  43F9 00000336            102      lea             StarArraySmallY,a1
+00000102  33FC 0001 00000656       103      move.w          #STAR_SIZE_SMALL,CurrentSize
+0000010A                           104      
+0000010A  4281                     105      clr.l           d1
+0000010C  4282                     106      clr.l           d2
+0000010E                           107      
+0000010E  4EB9 00000148            108      jsr             UpdateStarLoop
+00000114  4E75                     109      rts
+00000116                           110      
+00000116                           111  UpdateLargeStars:
+00000116  7E64                     112      move.l          #NUM_LARGE_STARS,d7
+00000118  5387                     113      sub.l           #1,d7
+0000011A  41F9 000004C6            114      lea             StarArrayLargeX,a0
+00000120  43F9 0000058E            115      lea             StarArrayLargeY,a1
+00000126  33FC 0002 00000656       116      move.w          #STAR_SIZE_LARGE,CurrentSize
+0000012E  3039 00000658            117      move.w          BackgroundOffset,d0
+00000134  E348                     118      lsl             #PARALLAX_AMOUNT,d0
+00000136  33C0 00000658            119      move.w          d0,BackgroundOffset
+0000013C                           120      
+0000013C  4281                     121      clr.l           d1
+0000013E  4282                     122      clr.l           d2
+00000140                           123      
+00000140  4EB9 00000148            124      jsr             UpdateStarLoop
+00000146  4E75                     125      rts
+00000148                           126      
+00000148                           127  UpdateStarLoop:
+00000148  7200                     128      move.l          #SPACE_COLOR,d1
+0000014A  7050                     129      move.l          #SET_PEN_TASK,d0
+0000014C  4E4F                     130      trap            #15
+0000014E  7051                     131      move.l          #SET_FILL_TASK,d0
+00000150  4E4F                     132      trap            #15
+00000152                           133      
+00000152  3210                     134      move.w          (a0),d1
+00000154  2601                     135      move.l          d1,d3
+00000156  D679 00000656            136      add.w           CurrentSize,d3
+0000015C                           137      
+0000015C  3411                     138      move.w          (a1),d2
+0000015E  2802                     139      move.l          d2,d4
+00000160  D879 00000656            140      add.w           CurrentSize,d4
+00000166                           141      
+00000166  7058                     142      move.l          #DRAW_CIRCLE_TASK,d0
+00000168  4E4F                     143      trap            #15
+0000016A                           144      
+0000016A  3039 00000658            145      move.w          BackgroundOffset,d0
+00000170  9150                     146      sub.w           d0,(a0)
+00000172  6E00 0006                147      bgt             DrawStar
+00000176                           148      
+Line 149 ERROR: Undefined symbol
+00000176  30BC BD16                149      move.w          #SCREEN_WIDTH,(a0)
+0000017A                           150      
+0000017A                           151  DrawStar:
+0000017A  223C 00FFFFFF            152      move.l          #STAR_COLOR,d1
+00000180  7050                     153      move.l          #SET_PEN_TASK,d0
+00000182  4E4F                     154      trap            #15
+00000184  7051                     155      move.l          #SET_FILL_TASK,d0
+00000186  4E4F                     156      trap            #15
+00000188                           157      
+00000188  3218                     158      move.w          (a0)+,d1
+0000018A  2601                     159      move.l          d1,d3
+0000018C  D679 00000656            160      add.w           CurrentSize,d3
+00000192  3419                     161      move.w          (a1)+,d2
+00000194  2802                     162      move.l          d2,d4
+00000196  D879 00000656            163      add.w           CurrentSize,d4
+0000019C                           164      
+0000019C  7058                     165      move.l          #DRAW_CIRCLE_TASK,d0
+0000019E  4E4F                     166      trap            #15
+000001A0                           167  
+000001A0  51CF FFA6                168      dbra            d7,UpdateStarLoop
+000001A4  4E75                     169      rts
+000001A6                           170  
+000001A6                           171  StarArraySmallX     ds.w    NUM_SMALL_STARS
+00000336                           172  StarArraySmallY     ds.w    NUM_SMALL_STARS
+000004C6                           173  StarArrayLargeX     ds.w    NUM_LARGE_STARS
+0000058E                           174  StarArrayLargeY     ds.w    NUM_LARGE_STARS
+00000656= 0000                     175  CurrentSize         dc.w    0
+00000658                           176  
+00000658= 0000                     177  BackgroundOffset    dc.w    0
+0000065A                           178  
+Line 179 WARNING: END directive missing, starting address not set
+
+11 errors detected
+1 warning generated
+
+
+SYMBOL TABLE INFORMATION
+Symbol-name         Value
+-------------------------
+BACKGROUNDOFFSET    658
+CURRENTSIZE         656
+DRAWSTAR            17A
+DRAW_CIRCLE_TASK    58
+GET_RES_TASK        21
+INITSTARS           0
+INITSTARSLOOP       5A
+NUM_LARGE_STARS     64
+NUM_SMALL_STARS     C8
+OFFSET_PER_FRAME    1
+PARALLAX_AMOUNT     1
+SET_FILL_TASK       51
+SET_PEN_TASK        50
+SPACE_COLOR         0
+STARARRAYLARGEX     4C6
+STARARRAYLARGEY     58E
+STARARRAYSMALLX     1A6
+STARARRAYSMALLY     336
+STAR_COLOR          FFFFFF
+STAR_SIZE_LARGE     2
+STAR_SIZE_SMALL     1
+UPDATELARGESTARS    116
+UPDATESMALLSTARS    EE
+UPDATESTARLOOP      148
+UPDATESTARS         C8

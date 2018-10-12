@@ -1,0 +1,186 @@
+00001000 Starting Address
+Assembler used: EASy68K Editor/Assembler v5.16.01
+Created On: 10/5/2018 4:24:58 PM
+
+00000000                             1  *-----------------------------------------------------------
+00000000                             2  * Title      : Player
+00000000                             3  * Written by : Joshua Newell
+00000000                             4  * Date       : 10/1/18
+00000000                             5  * Description:
+00000000                             6  *-----------------------------------------------------------
+00000000  =00000040                  7  PLAYER_MAX_SPEED            EQU 64
+00000000                             8  
+00000000                             9  
+00000000                            10  ;PLAYER_UPPER_BOUND          EQU 100
+00000000                            11  
+00000000  =00000019                 12  PLAYER_START_X              EQU 25
+Line 13 ERROR: Undefined symbol
+00000000                            13  PLAYER_START_Y              EQU SCREEN_HEIGHT/2
+00000000                            14  
+Line 15 ERROR: Undefined symbol
+00000000                            15  PLAYER_MAX_X                EQU SCREEN_WIDTH/4
+00000000                            16  
+00000000  =00000016                 17  PLAYER_SPRITE_WIDTH         EQU 22
+00000000  =00000013                 18  PLAYER_SPRITE_HEIGHT        EQU 19
+00000000  =00000004                 19  PLAYER_ANIM_TIMER           EQU 4
+00000000                            20  
+00000000                            21  ClearPlayerBackground:    
+00000000  4281                      22      clr.l   d1
+00000002  4282                      23      clr.l   d2
+00000004  3239 00000114             24      move.w  PlayerPosX,d1
+0000000A  3439 00000116             25      move.w  PlayerPosY,d2
+00000010                            26      
+Line 27 ERROR: Undefined symbol
+00000010  EC49                      27      lsr     #FRAC_BITS,d1
+Line 28 ERROR: Undefined symbol
+00000012  EC4A                      28      lsr     #FRAC_BITS,d2
+00000014                            29  ;TODO store lastX, lastY - only repaint 3(?) pixels width behind player
+00000014                            30      
+00000014  2601                      31      move.l  d1,d3
+00000016  2802                      32      move.l  d2,d4
+00000018  0683 00000016             33      add.l   #PLAYER_SPRITE_WIDTH,d3
+0000001E                            34  ;NOT CURRENTLY ERASING FULL WIDTH - likely starting at wrong left
+0000001E  0684 00000013             35      add.l   #PLAYER_SPRITE_HEIGHT,d4
+00000024                            36      
+Line 37 ERROR: Undefined symbol
+00000024  4EB9 004DBD16             37      jsr     InvalArea
+0000002A  4E75                      38      rts
+0000002C                            39      
+0000002C                            40  MovePlayer:
+Line 41 ERROR: Undefined symbol
+0000002C  41F9 004DBD16             41      lea     PlayerSprite,a0
+00000032                            42      
+00000032  4EB9 00000068             43      jsr     AnimPlayer
+00000038                            44      
+00000038  7416                      45      move.l  #PLAYER_SPRITE_WIDTH,d2
+0000003A  7613                      46      move.l  #PLAYER_SPRITE_HEIGHT,d3
+0000003C                            47      
+0000003C  33F9 00000114 00000118    48      move.w  PlayerPosX,PlayerScreenX
+00000046  3839 00000118             49      move.w  PlayerScreenX,d4
+Line 50 ERROR: Undefined symbol
+0000004C  EC4C                      50      lsr     #FRAC_BITS,d4
+0000004E  33F9 00000116 0000011A    51      move.w  PlayerPosY,PlayerScreenY
+00000058  3A39 0000011A             52      move.w  PlayerScreenY,d5
+Line 53 ERROR: Undefined symbol
+0000005E  EC4D                      53      lsr     #FRAC_BITS,d5
+00000060                            54      
+Line 55 ERROR: Undefined symbol
+00000060  4EB9 004DBD16             55      jsr     InitImage
+00000066  4E75                      56      rts
+00000068                            57      
+00000068                            58  AnimPlayer:
+00000068  4280                      59      clr.l   d0
+0000006A  5339 00000111             60      sub.b   #1,PlayerAnimTimer
+00000070  6F00 0020                 61      ble     AnimTimerReset
+00000074  1039 00000110             62      move.b  PlayerAnimState,d0
+0000007A  80FC 0003                 63      divu    #3,d0
+0000007E  4840                      64      swap    d0
+00000080  C0FC 0016                 65      mulu    #PLAYER_SPRITE_WIDTH,d0
+00000084                            66      
+00000084  4281                      67      clr.l   d1
+00000086  1239 00000112             68      move.b  PlayerMoveState,d1
+0000008C  C2FC 0013                 69      mulu    #PLAYER_SPRITE_HEIGHT,d1
+00000090                            70      
+00000090  4E75                      71      rts
+00000092                            72      
+00000092                            73  AnimTimerReset:
+00000092  5239 00000110             74      add.b   #1,PlayerAnimState
+00000098  13FC 0004 00000111        75      move.b  #PLAYER_ANIM_TIMER,PlayerAnimTimer
+000000A0  60C6                      76      bra     AnimPlayer    
+000000A2                            77      
+000000A2                            78  CheckPlayerCollision:
+000000A2  48E7 FFFE                 79      movem.l         d0-d7/a0-a6,-(a7)
+000000A6  4287                      80      clr.l           d7
+Line 81 ERROR: Undefined symbol
+000000A8  3E39 004DBD16             81      move.w          NumActiveEnemies,d7
+000000AE  5347                      82      sub.w           #1,d7
+Line 83 ERROR: Undefined symbol
+000000B0  43F9 004DBD16             83      lea             EnemyPosArray,a1
+000000B6                            84      
+000000B6                            85  CheckPlayerCollisionInner:
+000000B6  3039 00000114             86      move.w          PlayerPosX,d0
+000000BC  3211                      87      move.w          (a1),d1
+Line 88 ERROR: Undefined symbol
+000000BE  0640 BD16                 88      add.w           #PLAYER_SPRITE_WIDTH<<FRAC_BITS,d0
+000000C2  B240                      89      cmp.w           d0,d1
+000000C4  6E00 003E                 90      bgt             CheckPlayerCollisionEnd
+000000C8                            91      
+Line 92 ERROR: Undefined symbol
+000000C8  0440 BD16                 92      sub.w           #PLAYER_SPRITE_WIDTH<<FRAC_BITS,d0
+Line 93 ERROR: Invalid syntax
+000000CC                            93      add.w           #ENEMY_WIDTH<<FRAC_BITS,d1
+000000CC  B240                      94      cmp.w           d0,d1
+000000CE  6D00 0034                 95      blt             CheckPlayerCollisionEnd
+000000D2                            96      
+000000D2  3039 00000116             97      move.w          PlayerPosY,d0
+000000D8  3229 0002                 98      move.w          2(a1),d1
+Line 99 ERROR: Undefined symbol
+000000DC  0640 BD16                 99      add.w           #PLAYER_SPRITE_HEIGHT<<FRAC_BITS,d0
+000000E0  B240                     100      cmp.w           d0,d1
+000000E2  6E00 0020                101      bgt             CheckPlayerCollisionEnd
+000000E6                           102      
+Line 103 ERROR: Undefined symbol
+000000E6  0440 BD16                103      sub.w           #PLAYER_SPRITE_HEIGHT<<FRAC_BITS,d0
+Line 104 ERROR: Invalid syntax
+000000EA                           104      add.w           #ENEMY_HEIGHT<<FRAC_BITS,d1
+000000EA  B240                     105      cmp.w           d0,d1
+000000EC  6D00 0016                106      blt             CheckPlayerCollisionEnd
+000000F0                           107      
+000000F0  32BC 0001                108      move.w          #1,(a1)
+Line 109 ERROR: Undefined symbol
+000000F4  13FC 0000 005455B8       109      move.b          #0,IsPlaying
+000000FC                           110      
+Line 111 ERROR: Symbol value differs between first and second pass
+000000FC                           111  CheckPlayerCollisionEnd:
+000000FC  5849                     112      add.w           #4,a1
+000000FE  51CF FFB6                113      dbra            d7,CheckPlayerCollisionInner
+00000102                           114      
+00000102  4CDF 7FFF                115      movem.l         (a7)+,d0-d7/a0-a6
+00000106  4E75                     116      rts
+00000108                           117  
+00000108                           118      
+Line 119 ERROR: Symbol value differs between first and second pass
+00000108=                          119  PlayerAnimState dc.b    0
+Line 120 ERROR: Symbol value differs between first and second pass
+00000108=                          120  PlayerAnimTimer dc.b    PLAYER_ANIM_TIMER
+Line 121 ERROR: Symbol value differs between first and second pass
+00000108=                          121  PlayerMoveState dc.b    1
+00000108                           122  
+Line 123 ERROR: Symbol value differs between first and second pass
+00000108=                          123  PlayerPosX      dc.w    PLAYER_START_X<<FRAC_BITS
+Line 124 ERROR: Symbol value differs between first and second pass
+00000108=                          124  PlayerPosY      dc.w    PLAYER_START_Y<<FRAC_BITS
+Line 125 ERROR: Symbol value differs between first and second pass
+00000108=                          125  PlayerScreenX   dc.w    PLAYER_START_X<<FRAC_BITS
+Line 126 ERROR: Symbol value differs between first and second pass
+00000108=                          126  PlayerScreenY   dc.w    PLAYER_START_Y<<FRAC_BITS
+00000108                           127  
+00000108                           128  
+Line 129 WARNING: END directive missing, starting address not set
+
+26 errors detected
+1 warning generated
+
+
+SYMBOL TABLE INFORMATION
+Symbol-name         Value
+-------------------------
+ANIMPLAYER          68
+ANIMTIMERRESET      92
+CHECKPLAYERCOLLISION  A2
+CHECKPLAYERCOLLISIONEND  104
+CHECKPLAYERCOLLISIONINNER  B6
+CLEARPLAYERBACKGROUND  0
+MOVEPLAYER          2C
+PLAYERANIMSTATE     110
+PLAYERANIMTIMER     111
+PLAYERMOVESTATE     112
+PLAYERPOSX          114
+PLAYERPOSY          116
+PLAYERSCREENX       118
+PLAYERSCREENY       11A
+PLAYER_ANIM_TIMER   4
+PLAYER_MAX_SPEED    40
+PLAYER_SPRITE_HEIGHT  13
+PLAYER_SPRITE_WIDTH  16
+PLAYER_START_X      19

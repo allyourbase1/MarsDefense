@@ -1,0 +1,2402 @@
+00001000 Starting Address
+Assembler used: EASy68K Editor/Assembler v5.16.01
+Created On: 10/9/2018 5:34:20 PM
+
+00000000                             1  *-----------------------------------------------------------
+00000000                             2  * Title      : Main
+00000000                             3  * Written by : Joshua Newell
+00000000                             4  * Date       : 9/28/18
+00000000                             5  * Description: The main game loops for Mars Defender!
+00000000                             6  *
+00000000                             7  * WASD to move your ship, Space to fire
+00000000                             8  * You control one of the fastest ships in the galaxy!
+00000000                             9  * It's not as easy as it sounds, however; move with precision to survive the onslaught of enemies!
+00000000                            10  *-----------------------------------------------------------
+00000000                            11  ALL_REG                     REG d0-d7/a0-a6
+00000000                            12  
+00000000  =00000004                 13  FRAC_BITS                   EQU 4                       ;Use 4 fractional bits for fixed point math
+00000000  =00000030                 14  FRAMERATE_TIMER             EQU (100/30)<<FRAC_BITS     ;Denominator is FPS
+00000000                            15  
+00000000  =00000280                 16  SCREEN_WIDTH                EQU 640                     ;The dimensions of the game window
+00000000  =000001E0                 17  SCREEN_HEIGHT               EQU 480
+00000000                            18  
+00000000  =002646C6                 19  GROUND_COLOR                EQU $002646C6               ;Reddish-brown for ground color
+00000000  =00000040                 20  GROUND_HEIGHT               EQU 64                      ;Ground height for printing and limiting play area
+00000000  =00000000                 21  SPACE_COLOR                 EQU $00000000               ;Space is black!
+00000000                            22  
+00000000  =00000040                 23  HEADER_HEIGHT               EQU 64                      ;Dimensions and colors for in-game header
+00000000  =00000002                 24  HEADER_BORDER_WIDTH         EQU 2                       ;Border between play field and UI area
+00000000  =00FFFFFF                 25  HEADER_BORDER_COLOR         EQU $00FFFFFF
+00000000                            26  
+00000000  =00000032                 27  HIGH_SCORE_HEADER_OFFSET    EQU 50                      ;Position on screen of Score
+00000000  =00000064                 28  TITLE_OFFSET                EQU 100                     ;Position on screen of Title image
+00000000                            29  
+00000000  =00000008                 30  GET_TIME_TRAP_CODE          EQU 8                       ;Sim68K Trap Codes for hardware simulation
+00000000  =0000005C                 31  DRAWING_MODE_TRAP_CODE      EQU 92
+00000000  =00000011                 32  DRAWING_MODE_DOUBLE_BUFFER  EQU 17
+00000000  =0000005E                 33  REPAINT_SCREEN_TRAP_CODE    EQU 94
+00000000  =00000021                 34  SET_RESOLUTION_TRAP_CODE    EQU 33
+00000000  =00000057                 35  DRAW_SQUARE_TRAP_CODE       EQU 87
+00000000  =00000050                 36  SET_PEN_TRAP_CODE           EQU 80
+00000000  =00000051                 37  SET_FILL_TRAP_CODE          EQU 81
+00000000                            38  
+00001000                            39      ORG    $1000
+00001000                            40  ********************************************************************
+00001000                            41  *
+00001000                            42  * Beginning of game
+00001000                            43  *
+00001000                            44  ********************************************************************
+00001000                            45  
+00001000                            46  START:                      
+00001000  4EB9 00001738             47      jsr     SeedRandomNumber                    ;Seed our random number generator right away
+00001006  4EB9 000010DE             48      jsr     SetDrawMode                         ;Set double buffering
+0000100C                            49      
+0000100C                            50  ********************************************************************
+0000100C                            51  *
+0000100C                            52  * The loop of the title screen
+0000100C                            53  * Draw the Title screen and wait for input to start the game
+0000100C                            54  *
+0000100C                            55  ********************************************************************
+0000100C                            56  
+0000100C                            57  TitleLoop:
+0000100C  4EB9 0000110C             58      jsr     DrawBackground                      ;Draw the background first
+00001012  4EB9 00001182             59      jsr     DrawTitle                           ;Then the Title image
+00001018                            60      
+00001018  4EB9 00002934             61      jsr     AwaitInput                          ;Wait for user input to start the game
+0000101E                            62      
+0000101E  4281                      63      clr.l   d1                                  ;Clear the screen once user has started the game 
+00001020  4282                      64      clr.l   d2                                  ;Clear from 0,0
+00001022  263C 00000280             65      move.l  #SCREEN_WIDTH,d3                    ;To edges of screen
+00001028  283C 000001E0             66      move.l  #SCREEN_HEIGHT,d4
+0000102E                            67      
+0000102E  4EB9 00001240             68      jsr     InvalArea                           ;Clear the screen
+00001034                            69      
+00001034                            70  ********************************************************************
+00001034                            71  *
+00001034                            72  * Initial setup before starting the game
+00001034                            73  *
+00001034                            74  ********************************************************************
+00001034                            75  
+00001034                            76  BeginGame:
+00001034  4EB9 00001F9A             77      jsr     InitStars                           ;Create the starfield background and display it
+0000103A  4EB9 000011CE             78      jsr     DrawGround                          ;Draw the ground before the playfield
+00001040  4EB9 00001200             79      jsr     DrawHeader                          ;Draw the header and UI
+00001046                            80      
+00001046  4EB9 000017F2             81      jsr     SpawnEnemy                          ;Start the game with one enemy in play
+0000104C                            82  
+0000104C                            83  ********************************************************************
+0000104C                            84  *
+0000104C                            85  * The main game loop!
+0000104C                            86  *
+0000104C                            87  * The logic of the game itself is here
+0000104C                            88  * Update graphics, physics, check for collisions, and update objects and game state accordingly
+0000104C                            89  *
+0000104C                            90  ********************************************************************
+0000104C                            91  
+0000104C                            92  Main:
+0000104C  4EB9 000010E4             93      jsr     GetTime                             ;Get the time at the start of each frame to control framerate
+00001052  23C1 00182D50             94      move.l  d1,FrameTimer                       ;Store it for use at the end of the frame
+00001058                            95      
+00001058  4EB9 0000205A             96      jsr     UpdateStars                         ;Update the position of each star and display them
+0000105E  4EB9 0000275A             97      jsr     AddSurvivalScore                    ;Check if the player has survived long enough to add another survival point
+00001064                            98      
+00001064  4EB9 000013D8             99      jsr     GetInput                            ;Get player input
+0000106A  4EB9 000012E8            100      jsr     MovePlayer                          ;Update player position based on input
+00001070                           101      
+00001070  4EB9 000017C6            102      jsr     CheckEnemySpawn                     ;See if we are going to spawn another enemy
+00001076  4EB9 00001958            103      jsr     CheckEnemySpeedUp                   ;Check if it's time to speed up the enemies
+0000107C  4EB9 0000184A            104      jsr     MoveEnemies                         ;Move all the enemies!
+00001082                           105      
+00001082  4EB9 00001D82            106      jsr     UpdateBullets                       ;Move all the bullets!
+00001088                           107      
+00001088  4EB9 000010EA            108      jsr     DoFrameTimer                        ;Check if it's time to update the frame
+0000108E                           109      
+0000108E  4EB9 0000125C            110      jsr     PaintScreen                         ;If so, repaint the screen
+00001094                           111      
+00001094  0C39 0000 00182D54       112      cmp.b   #0,IsPlaying                        ;Are we still alive?
+0000109C  6EAE                     113      bgt     Main                                ;Keep playing!
+0000109E                           114      
+0000109E                           115  ********************************************************************
+0000109E                           116  *
+0000109E                           117  * We died! Game over here
+0000109E                           118  *
+0000109E                           119  * Clear the screen, show the high score table, reset all variables and play again!
+0000109E                           120  *
+0000109E                           121  ********************************************************************
+0000109E                           122  
+0000109E                           123  GameOver:    
+0000109E  7200                     124      move.l  #0,d1                               ;From 0, 0
+000010A0  7400                     125      move.l  #0,d2
+000010A2  363C 0280                126      move.w  #SCREEN_WIDTH,d3                    ;To the end of screen
+000010A6  383C 01E0                127      move.w  #SCREEN_HEIGHT,d4   
+000010AA  4EB9 00001240            128      jsr     InvalArea                           ;Clear everything
+000010B0                           129      
+000010B0  4EB9 0000110C            130      jsr     DrawBackground                      ;Draw the background for the game over screen
+000010B6  4EB9 00001136            131      jsr     DrawHighScoreHeader                 ;Draw the high score header
+000010BC  4EB9 00002790            132      jsr     DisplayScores                       ;Show the high score table
+000010C2                           133      
+000010C2  4EB9 00001240            134      jsr     InvalArea                           ;Clear the screen
+000010C8                           135      
+000010C8  4EB9 00001262            136      jsr     ResetGameParamters                  ;Reset all gameplay parameters and variables
+000010CE                           137      
+000010CE  13FC 0001 00182D54       138      move.b  #1,IsPlaying                        ;Set game state
+000010D6  6000 FF5C                139      bra     BeginGame                           ;Start playing!
+000010DA                           140  
+000010DA                           141  ********************************************************************
+000010DA                           142  *
+000010DA                           143  * End of game, should never reach this in normal play
+000010DA                           144  *
+000010DA                           145  ********************************************************************
+000010DA                           146  
+000010DA                           147  END:
+000010DA  FFFF FFFF                148      SIMHALT                                     ; halt simulator
+000010DE                           149      
+000010DE                           150      
+000010DE                           151      
+000010DE                           152  ********************************************************************
+000010DE                           153  *
+000010DE                           154  * Set Sim68K to use double buffering
+000010DE                           155  *
+000010DE                           156  ********************************************************************
+000010DE                           157  
+000010DE                           158  SetDrawMode:
+000010DE  705C                     159      move.l  #DRAWING_MODE_TRAP_CODE,d0
+000010E0  7211                     160      move.l  #DRAWING_MODE_DOUBLE_BUFFER,d1
+000010E2  4E4F                     161      trap    #15
+000010E4                           162      
+000010E4                           163  ********************************************************************
+000010E4                           164  *
+000010E4                           165  * Get the current time in hundredths of a second since midnight
+000010E4                           166  *
+000010E4                           167  ********************************************************************
+000010E4                           168  
+000010E4                           169  GetTime:
+000010E4  7008                     170      move.l  #GET_TIME_TRAP_CODE,d0
+000010E6  4E4F                     171      trap    #15
+000010E8  4E75                     172      rts
+000010EA                           173      
+000010EA                           174  ********************************************************************
+000010EA                           175  *
+000010EA                           176  * Check if enough time has passed for our framerate cap
+000010EA                           177  *
+000010EA                           178  ********************************************************************
+000010EA                           179  
+000010EA                           180  DoFrameTimer:
+000010EA  48E7 FFFE                181      movem.l ALL_REG,-(a7)                           ;Push registers to the stack
+000010EE  2439 00182D50            182      move.l  FrameTimer,d2                           ;Get the time since the beginning of the frame
+000010F4  E98A                     183      lsl.l   #FRAC_BITS,d2                           ;Shift it for fixed point math for precision
+000010F6                           184      
+000010F6                           185  FrameTimerInner:
+000010F6  4EB8 10E4                186      jsr     GetTime                                 ;Get the current time
+000010FA  E989                     187      lsl.l   #FRAC_BITS,d1                           ;Shift for precision
+000010FC  9282                     188      sub.l   d2,d1                                   ;Subtract the time at the beginning of the frame
+000010FE  B2BC 00000030            189      cmp.l   #FRAMERATE_TIMER,d1                     ;Compare this difference to our timer
+00001104  6DF0                     190      blt     FrameTimerInner                         ;If it was too fast, try again
+00001106                           191      
+00001106  4CDF 7FFF                192      movem.l (a7)+,ALL_REG                           ;Restore stack
+0000110A  4E75                     193      rts                                     
+0000110C                           194      
+0000110C                           195  ********************************************************************
+0000110C                           196  *
+0000110C                           197  * Draw the background image on the entire screen
+0000110C                           198  *
+0000110C                           199  ********************************************************************
+0000110C                           200  
+0000110C                           201  DrawBackground:
+0000110C  48E7 FFFE                202      movem.l ALL_REG,-(a7)                           ;Push all registers to the stack
+00001110  41F9 00035124            203      lea     Background,a0                           ;Get the address of the background image
+00001116                           204          
+00001116  4280                     205      clr.l   d0                                      ;Set the parameters for the bitmap display function
+00001118  4281                     206      clr.l   d1                                      ;Start at 0,0 in the image
+0000111A  4282                     207      clr.l   d2
+0000111C  4283                     208      clr.l   d3
+0000111E  343C 0280                209      move.w  #SCREEN_WIDTH,d2                        ;Use screen size as width and height of portion of image to draw
+00001122  363C 01E0                210      move.w  #SCREEN_HEIGHT,d3
+00001126  4284                     211      clr.l   d4                                      ;Draw at 0,0 on the screen
+00001128  4285                     212      clr.l   d5
+0000112A                           213      
+0000112A  4EB9 000015A6            214      jsr     InitImage                               ;Draw the image
+00001130  4CDF 7FFF                215      movem.l (a7)+,ALL_REG                           ;Restore the stack and return
+00001134  4E75                     216      rts
+00001136                           217      
+00001136                           218  ********************************************************************
+00001136                           219  *
+00001136                           220  * Draw the header image for the high score table
+00001136                           221  *
+00001136                           222  ********************************************************************
+00001136                           223  
+00001136                           224  DrawHighScoreHeader:
+00001136  48E7 FFFE                225      movem.l ALL_REG,-(a7)                           ;Push registers to the stack
+0000113A  41F9 00002A30            226      lea     HighScoreHeader,a0                      ;Get the address of the image
+00001140                           227      
+00001140  4280                     228      clr.l   d0                                      ;Set the parameters for the display bitmap function
+00001142  4281                     229      clr.l   d1                                      ;Start at 0,0 in the image
+00001144  4282                     230      clr.l   d2
+00001146  4283                     231      clr.l   d3
+00001148                           232      
+00001148  2428 0012                233      move.l  WIDTH_OFFSET(a0),d2                     ;Get the full width of the image from the file header
+0000114C  2002                     234      move.l  d2,d0
+0000114E  4EB9 000016DA            235      jsr     ByteSwap
+00001154  2400                     236      move.l  d0,d2                                   ;Display the full width of the image
+00001156                           237      
+00001156  2628 0016                238      move.l  HEIGHT_OFFSET(a0),d3                    ;Get the height of the image from the filer header
+0000115A  2003                     239      move.l  d3,d0
+0000115C  4EB9 000016DA            240      jsr     ByteSwap
+00001162  2600                     241      move.l  d0,d3                                   ;Display the full height of the image 
+00001164                           242      
+00001164  4280                     243      clr.l   d0
+00001166                           244  
+00001166  4284                     245      clr.l   d4                                      ;Set the location on the screen to display the image
+00001168  4285                     246      clr.l   d5
+0000116A  383C 0280                247      move.w  #SCREEN_WIDTH,d4
+0000116E  9842                     248      sub.w   d2,d4
+00001170  E28C                     249      lsr.l   #1,d4                                   ;Center the image horizontally
+00001172  3A3C 0032                250      move.w  #HIGH_SCORE_HEADER_OFFSET,d5            ;Use preset Y position
+00001176                           251      
+00001176  4EB9 000015A6            252      jsr     InitImage                               ;Draw the image
+0000117C  4CDF 7FFF                253      movem.l (a7)+,ALL_REG                           ;Restore the stack
+00001180  4E75                     254      rts
+00001182                           255  
+00001182                           256  ********************************************************************
+00001182                           257  *
+00001182                           258  * Draw the title image
+00001182                           259  *
+00001182                           260  ********************************************************************
+00001182                           261  
+00001182                           262  DrawTitle:
+00001182  48E7 FFFE                263      movem.l ALL_REG,-(a7)                           ;Push registers to the stack
+00001186  41F9 00125118            264      lea     Title,a0                                ;Get the image address
+0000118C                           265      
+0000118C  4280                     266      clr.l   d0                                      ;Set paramters for display bitmap function
+0000118E  4281                     267      clr.l   d1                                      ;Start at 0,0 of image
+00001190  4282                     268      clr.l   d2
+00001192  4283                     269      clr.l   d3
+00001194                           270      
+00001194  2428 0012                271      move.l  WIDTH_OFFSET(a0),d2                     ;Display full width
+00001198  2002                     272      move.l  d2,d0
+0000119A  4EB9 000016DA            273      jsr     ByteSwap
+000011A0  2400                     274      move.l  d0,d2
+000011A2                           275      
+000011A2  2628 0016                276      move.l  HEIGHT_OFFSET(a0),d3                    ;Display full height
+000011A6  2003                     277      move.l  d3,d0
+000011A8  4EB9 000016DA            278      jsr     ByteSwap
+000011AE  2600                     279      move.l  d0,d3
+000011B0                           280      
+000011B0  4280                     281      clr.l   d0
+000011B2                           282  
+000011B2  4284                     283      clr.l   d4
+000011B4  4285                     284      clr.l   d5
+000011B6  383C 0280                285      move.w  #SCREEN_WIDTH,d4                        ;Center horizontally on screen
+000011BA  9842                     286      sub.w   d2,d4
+000011BC  E28C                     287      lsr.l   #1,d4
+000011BE  3A3C 0064                288      move.w  #TITLE_OFFSET,d5                        ;Set to predetermined Y position
+000011C2                           289      
+000011C2  4EB9 000015A6            290      jsr     InitImage                               ;Display the image
+000011C8  4CDF 7FFF                291      movem.l (a7)+,ALL_REG                           ;Restore the stack
+000011CC  4E75                     292      rts
+000011CE                           293  
+000011CE                           294  ********************************************************************
+000011CE                           295  *
+000011CE                           296  * Draw the ground as a rectangle
+000011CE                           297  *
+000011CE                           298  ********************************************************************
+000011CE                           299      
+000011CE                           300  DrawGround:
+000011CE  223C 002646C6            301      move.l  #GROUND_COLOR,d1                        ;Set the color of the ground
+000011D4  7051                     302      move.l  #SET_FILL_TRAP_CODE,d0
+000011D6  4E4F                     303      trap    #15
+000011D8                           304      
+000011D8  203C 00000050            305      move.l  #TASK_PEN_COLOR,d0
+000011DE  4E4F                     306      trap    #15
+000011E0                           307      
+000011E0  7200                     308      move.l  #0,d1                                   ;Set the location on screen of the ground
+000011E2  243C 000001E0            309      move.l  #SCREEN_HEIGHT,d2                       ;Start at bottom of screen
+000011E8  0482 00000040            310      sub.l   #GROUND_HEIGHT,d2                       ;Move up predetermined height
+000011EE  263C 00000280            311      move.l  #SCREEN_WIDTH,d3                        ;Use full width of screen
+000011F4  283C 000001E0            312      move.l  #SCREEN_HEIGHT,d4                       ;Fill to the bottom of the screen
+000011FA  7057                     313      move.l  #DRAW_SQUARE_TRAP_CODE,d0               ;Draw the rectangle
+000011FC  4E4F                     314      trap    #15
+000011FE                           315      
+000011FE  4E75                     316      rts
+00001200                           317      
+00001200                           318  ********************************************************************
+00001200                           319  *
+00001200                           320  * Draw the header for the UI above the field of play
+00001200                           321  *
+00001200                           322  ********************************************************************
+00001200                           323      
+00001200                           324  DrawHeader:    
+00001200  223C 00FFFFFF            325      move.l  #HEADER_BORDER_COLOR,d1                 ;Set the border color for the header and playfield
+00001206  7051                     326      move.l  #SET_FILL_TRAP_CODE,d0
+00001208  4E4F                     327      trap    #15
+0000120A                           328      
+0000120A  203C 00000050            329      move.l  #TASK_PEN_COLOR,d0
+00001210  4E4F                     330      trap    #15
+00001212                           331      
+00001212  4281                     332      clr.l   d1                                      ;Draw as a filled rectangle from 0,0
+00001214  4282                     333      clr.l   d2
+00001216  263C 00000280            334      move.l  #SCREEN_WIDTH,d3                        ;To the full width of the screen
+0000121C  7840                     335      move.l  #HEADER_HEIGHT,d4                       ;And a predetermined height
+0000121E                           336      
+0000121E  7057                     337      move.l  #DRAW_SQUARE_TRAP_CODE,d0               ;Draw rectangle
+00001220  4E4F                     338      trap    #15
+00001222                           339  
+00001222  41F9 000170EE            340      lea     HeaderBackground,a0                     ;Set paramaters for the bitmap background of the header
+00001228  7000                     341      move.l  #0,d0                                   ;Start at 0,0
+0000122A  7200                     342      move.l  #0,d1
+0000122C  243C 00000280            343      move.l  #SCREEN_WIDTH,d2                        ;Go the full width of the screen
+00001232  763E                     344      move.l  #HEADER_HEIGHT-HEADER_BORDER_WIDTH,d3   ;Leave room for the border in the header
+00001234  7800                     345      move.l  #0,d4                                   ;Draw at 0,0 on screen
+00001236  7A00                     346      move.l  #0,d5
+00001238                           347      
+00001238  4EB9 000015A6            348      jsr     InitImage                               ;Draw the image
+0000123E  4E75                     349      rts
+00001240                           350      
+00001240                           351  ********************************************************************
+00001240                           352  *
+00001240                           353  * Clear out an area of pixels no longer in use with background color
+00001240                           354  *
+00001240                           355  ********************************************************************
+00001240                           356      
+00001240                           357  InvalArea:
+00001240  48E7 FFFE                358      movem.l ALL_REG,-(a7)                           ;Push registers to stack
+00001244  7200                     359      move.l  #SPACE_COLOR,d1                         ;Set color to background color
+00001246  7050                     360      move.l  #SET_PEN_TRAP_CODE,d0
+00001248  4E4F                     361      trap    #15
+0000124A  7051                     362      move.l  #SET_FILL_TRAP_CODE,d0
+0000124C  4E4F                     363      trap    #15
+0000124E                           364      
+0000124E  4CD7 7FFF                365      movem.l (a7),ALL_REG                            ;Get previous values from stack for parameters
+00001252  7057                     366      move.l  #DRAW_SQUARE_TRAP_CODE,d0
+00001254  4E4F                     367      trap    #15                                     ;Draw the rectangle to clear
+00001256  4CDF 7FFF                368      movem.l (a7)+,ALL_REG                           ;Restore the stack
+0000125A  4E75                     369      rts
+0000125C                           370      
+0000125C                           371  ********************************************************************
+0000125C                           372  *
+0000125C                           373  * Repaint the screen with the back buffer
+0000125C                           374  *
+0000125C                           375  ********************************************************************
+0000125C                           376      
+0000125C                           377  PaintScreen:
+0000125C  705E                     378      move.l  #REPAINT_SCREEN_TRAP_CODE,d0
+0000125E  4E4F                     379      trap    #15
+00001260  4E75                     380      rts
+00001262                           381  
+00001262                           382  ********************************************************************
+00001262                           383  *
+00001262                           384  * Reset all game parameters and variables before restarting play
+00001262                           385  *
+00001262                           386  ********************************************************************
+00001262                           387      
+00001262                           388  ResetGameParamters:
+00001262  33FC 0190 000013D0       389      move.w  #PLAYER_START_X<<FRAC_BITS,PlayerPosX   ;Reset player position
+0000126A  33FC 0F00 000013D2       390      move.w  #PLAYER_START_Y<<FRAC_BITS,PlayerPosY
+00001272                           391      
+00001272  33FC 0000 00001D14       392      move.w  #0,NumActiveEnemies                     ;Reset enemy counts to 0
+0000127A  33FC 000A 00001D16       393      move.w  #MAX_NUM_ENEMIES,DeadEnemies
+00001282  33FC 0000 00001D1C       394      move.w  #0,EnemySpeedBonus                      ;Reset enemy speed to base
+0000128A                           395      
+0000128A  33FC 0000 00001F94       396      move.w  #0,NumLivePlayerBullets                 ;Reset bullet counts
+00001292                           397      
+00001292  23FC 00000000 00002786   398      move.l  #0,Score                                ;Reset score
+0000129C  33FC 0000 000029EA       399      move.w  #0,HaveUsedScore                        ;Reset high score input
+000012A4  33FC 0000 000029E8       400      move.w  #0,CurrentTableIndex                    ;Reset high score output
+000012AC                           401      
+000012AC  33FC 0000 000015A4       402      move.w  #0,CurrentYSpeed                        ;Reset player speed
+000012B4  33FC 0000 000015A2       403      move.w  #0,CurrentXSpeed
+000012BC                           404      
+000012BC  4E75                     405      rts
+000012BE                           406      
+000012BE                           407      
+000012BE                           408  
+000012BE                           409      include 'Player.X68'                            ;Includes to keep organized
+000012BE  =00000011                410  PLAYER_ACCELERATION         EQU 17                                                  ;How fast the player accelerates on a key press
+000012BE  =00000003                411  PLAYER_FRICTION             EQU 3                                                   ;How fast the player slows down over time
+000012BE                           412  
+000012BE  =00000019                413  PLAYER_START_X              EQU 25                                                  ;Where on the screen the player starts the game
+000012BE  =000000F0                414  PLAYER_START_Y              EQU SCREEN_HEIGHT/2
+000012BE                           415  
+000012BE  =00000016                416  PLAYER_SPRITE_WIDTH         EQU 22                                                  ;Sprite display parameters
+000012BE  =00000013                417  PLAYER_SPRITE_HEIGHT        EQU 19
+000012BE  =00000004                418  PLAYER_ANIM_TIMER           EQU 4                                                   ;How often the player sprite updates
+000012BE                           419  
+000012BE  =000000A0                420  PLAYER_MAX_X                EQU SCREEN_WIDTH/4                                      ;The line the player cannot cross moving right
+000012BE  =0000018D                421  PLAYER_MAX_Y                EQU SCREEN_HEIGHT-GROUND_HEIGHT-PLAYER_SPRITE_HEIGHT    ;The lowest screen coordinate the player can move to
+000012BE                           422  
+000012BE                           423  
+000012BE                           424  ClearPlayerBackground:    
+000012BE  4281                     425      clr.l   d1                                  ;Set screen starting X,Y
+000012C0  4282                     426      clr.l   d2
+000012C2  3239 000013D0            427      move.w  PlayerPosX,d1                       ;Get the current position
+000012C8  3439 000013D2            428      move.w  PlayerPosY,d2
+000012CE                           429      
+000012CE  E849                     430      lsr     #FRAC_BITS,d1                       ;Adjust for fixed point to pixel location
+000012D0  E84A                     431      lsr     #FRAC_BITS,d2
+000012D2                           432      
+000012D2  2601                     433      move.l  d1,d3                               ;Add size of sprite to Inval entire area
+000012D4  2802                     434      move.l  d2,d4
+000012D6  0683 00000016            435      add.l   #PLAYER_SPRITE_WIDTH,d3
+000012DC  0684 00000013            436      add.l   #PLAYER_SPRITE_HEIGHT,d4
+000012E2                           437      
+000012E2  4EB8 1240                438      jsr     InvalArea                           ;Clear area of sprite
+000012E6  4E75                     439      rts
+000012E8                           440      
+000012E8                           441      
+000012E8                           442  MovePlayer: 
+000012E8  41F9 0012245A            443      lea     PlayerSprite,a0                     ;Get the address of the player sprite
+000012EE                           444      
+000012EE  4EB9 00001324            445      jsr     AnimPlayer                          ;Do the animation - this will return the current frame
+000012F4                           446      
+000012F4  7416                     447      move.l  #PLAYER_SPRITE_WIDTH,d2             ;Get the width and height to display
+000012F6  7613                     448      move.l  #PLAYER_SPRITE_HEIGHT,d3
+000012F8                           449      
+000012F8  33F9 000013D0 000013D4   450      move.w  PlayerPosX,PlayerScreenX            ;Store the up to date X,Y locations on screen
+00001302  3839 000013D4            451      move.w  PlayerScreenX,d4
+00001308  E84C                     452      lsr     #FRAC_BITS,d4                       ;Adjust for fixed point to pixel coordinates
+0000130A  33F9 000013D2 000013D6   453      move.w  PlayerPosY,PlayerScreenY
+00001314  3A39 000013D6            454      move.w  PlayerScreenY,d5
+0000131A  E84D                     455      lsr     #FRAC_BITS,d5
+0000131C                           456      
+0000131C  4EB9 000015A6            457      jsr     InitImage                           ;Draw the image on screen
+00001322  4E75                     458      rts
+00001324                           459      
+00001324                           460      
+00001324                           461  AnimPlayer:
+00001324  4280                     462      clr.l   d0
+00001326  5339 000013CD            463      sub.b   #1,PlayerAnimTimer                          ;Update the timer
+0000132C  6F00 0020                464      ble     AnimTimerReset                              ;If it's too soon, don't animate yet
+00001330  1039 000013CC            465      move.b  PlayerAnimState,d0                          ;Else, get the current frame
+00001336  80FC 0003                466      divu    #3,d0                                       ;Set index based on how many states there are
+0000133A  4840                     467      swap    d0                                          ;to the remainder
+0000133C  C0FC 0016                468      mulu    #PLAYER_SPRITE_WIDTH,d0                     ;Set the X coordinate
+00001340                           469      
+00001340  4281                     470      clr.l   d1
+00001342  1239 000013CE            471      move.b  PlayerMoveState,d1                          ;Get the current state of motion
+00001348  C2FC 0013                472      mulu    #PLAYER_SPRITE_HEIGHT,d1                    ;Set the Y coordinate appropriately
+0000134C                           473      
+0000134C  4E75                     474      rts
+0000134E                           475      
+0000134E                           476  AnimTimerReset:
+0000134E  5239 000013CC            477      add.b   #1,PlayerAnimState                          ;Update the animation state
+00001354  13FC 0004 000013CD       478      move.b  #PLAYER_ANIM_TIMER,PlayerAnimTimer          ;Refresh the animation timer
+0000135C  60C6                     479      bra     AnimPlayer                                  ;Return the current frame
+0000135E                           480      
+0000135E                           481      
+0000135E                           482  CheckPlayerCollision:
+0000135E  48E7 FFFE                483      movem.l         d0-d7/a0-a6,-(a7)                   ;Push registers to stack
+00001362  4287                     484      clr.l           d7
+00001364  3E39 00001D14            485      move.w          NumActiveEnemies,d7                 ;Get our loop index
+0000136A  5347                     486      sub.w           #1,d7
+0000136C  43F9 00001CEC            487      lea             EnemyPosArray,a1                    ;Get address of array of enemy positions
+00001372                           488      
+00001372                           489  CheckPlayerCollisionInner:
+00001372  3039 000013D0            490      move.w          PlayerPosX,d0                       ;Get current player position
+00001378  3211                     491      move.w          (a1),d1                             ;Get current enemy position
+0000137A  0640 0160                492      add.w           #PLAYER_SPRITE_WIDTH<<FRAC_BITS,d0  ;Check right side of player
+0000137E  B240                     493      cmp.w           d0,d1
+00001380  6E00 003E                494      bgt             CheckPlayerCollisionEnd             ;If player right side is left of enemy, move on
+00001384                           495      
+00001384  0440 0160                496      sub.w           #PLAYER_SPRITE_WIDTH<<FRAC_BITS,d0  ;Check left side of player
+00001388  0641 0100                497      add.w           #ENEMY_WIDTH<<FRAC_BITS,d1          ;Against right side of enemy
+0000138C  B240                     498      cmp.w           d0,d1
+0000138E  6D00 0030                499      blt             CheckPlayerCollisionEnd             ;If player is to the right of enemy, move on
+00001392                           500      
+00001392  3039 000013D2            501      move.w          PlayerPosY,d0                       ;Get current player Y position
+00001398  3229 0002                502      move.w          2(a1),d1                            ;Get current enemy Y position
+0000139C  0640 0130                503      add.w           #PLAYER_SPRITE_HEIGHT<<FRAC_BITS,d0 ;Check bottom of current player
+000013A0  B240                     504      cmp.w           d0,d1
+000013A2  6E00 001C                505      bgt             CheckPlayerCollisionEnd             ;If above enemy, move on
+000013A6                           506      
+000013A6  0440 0130                507      sub.w           #PLAYER_SPRITE_HEIGHT<<FRAC_BITS,d0 ;Check top of player
+000013AA  0641 0110                508      add.w           #ENEMY_HEIGHT<<FRAC_BITS,d1         ;against bottom of enemy
+000013AE  B240                     509      cmp.w           d0,d1
+000013B0  6D00 000E                510      blt             CheckPlayerCollisionEnd             ;If below enemy, move on
+000013B4                           511      
+000013B4  32BC 0001                512      move.w          #1,(a1)                             ;If we're here there is an overlap so kill the enemy
+000013B8  13FC 0000 00182D54       513      move.b          #0,IsPlaying                        ;And the player
+000013C0                           514      
+000013C0                           515  CheckPlayerCollisionEnd:
+000013C0  5849                     516      add.w           #4,a1                               ;We're safe here
+000013C2  51CF FFAE                517      dbra            d7,CheckPlayerCollisionInner        ;So check the next enemy
+000013C6                           518      
+000013C6  4CDF 7FFF                519      movem.l         (a7)+,d0-d7/a0-a6                   ;The player lives! Restore the stack
+000013CA  4E75                     520      rts
+000013CC                           521  
+000013CC                           522      
+000013CC                           523      
+000013CC= 00                       524  PlayerAnimState dc.b    0                               ;Animation index
+000013CD= 04                       525  PlayerAnimTimer dc.b    PLAYER_ANIM_TIMER               ;Animation timer
+000013CE= 01                       526  PlayerMoveState dc.b    1                               ;State for player vertical movement for animation
+000013CF                           527  
+000013D0= 0190                     528  PlayerPosX      dc.w    PLAYER_START_X<<FRAC_BITS       ;Current player position
+000013D2= 0F00                     529  PlayerPosY      dc.w    PLAYER_START_Y<<FRAC_BITS
+000013D4= 0190                     530  PlayerScreenX   dc.w    PLAYER_START_X<<FRAC_BITS       ;Last drawn player position
+000013D6= 0F00                     531  PlayerScreenY   dc.w    PLAYER_START_Y<<FRAC_BITS
+000013D8                           532  
+000013D8                           533  
+000013D8                           534  
+000013D8                           535  
+000013D8                           536  
+000013D8                           537  
+000013D8                           538  
+000013D8                           539  
+000013D8                           540  -------------------- end include --------------------
+000013D8                           541      include 'Input.X68'
+000013D8  =00000013                542  KEY_IN_TRAP_CODE        EQU 19                          ;Trap code for checking input for specific keys
+000013D8                           543  
+000013D8  =57415344                544  WASD_BITS               EQU 'W'<<24+'A'<<16+'S'<<8+'D'  ;Keys for player control
+000013D8  =00000020                545  FIRE_KEY                EQU $20                         ;Key for firing
+000013D8                           546  
+000013D8                           547  
+000013D8                           548  GetInput:
+000013D8  48E7 C000                549      movem.l d0-d1,-(a7)                                 ;Push registers to stack
+000013DC                           550      
+000013DC  4EB8 12BE                551      jsr     ClearPlayerBackground                       ;Inval the old player location
+000013E0                           552          
+000013E0  7013                     553      move.l  #KEY_IN_TRAP_CODE,d0                        ;Check for fire key press
+000013E2  7220                     554      move.l  #FIRE_KEY,d1
+000013E4  4E4F                     555      trap    #15
+000013E6                           556      
+000013E6  B23C 00FF                557      cmp.b   #$FF,d1                                     ;If it isn't pressed, we can reset our timer for firing
+000013EA  6600 0008                558      bne     GetFireUp
+000013EE                           559      
+000013EE  4EB9 00001D1E            560      jsr     PlayerFire                                  ;If it is, go ahead and try to fire
+000013F4                           561  
+000013F4                           562  GetFireUp:    
+000013F4  7200                     563      move.l  #0,d1                                       ;Get the last key Up into d1
+000013F6  4E4F                     564      trap    #15
+000013F8  4841                     565      swap    d1
+000013FA  B23C 0020                566      cmp.b   #FIRE_KEY,d1                                ;If it is fire, reset the timer
+000013FE  6600 000A                567      bne     GetMoveInput
+00001402                           568      
+00001402  33FC 0000 00001F98       569      move.w  #0,PlayerFireTimer
+0000140A                           570      
+0000140A                           571  GetMoveInput:
+0000140A  7013                     572      move.l  #KEY_IN_TRAP_CODE,d0                        ;Check for movement key presses
+0000140C  223C 57415344            573      move.l  #WASD_BITS,d1
+00001412  4E4F                     574      trap    #15
+00001414                           575      
+00001414  11FC 0001 13CE           576      move.b  #1,PlayerMoveState                          ;Update state to currently not moving up/down for animation
+0000141A                           577      
+0000141A                           578  AddRight:
+0000141A  B238 00FF                579      cmp.b   $FF,d1                                      ;Check key right first
+0000141E  6600 001E                580      bne     AddDown                                     ;If it is not pressed, skip right movement
+00001422                           581      ;Move right 
+00001422  303C 00A0                582      move.w  #PLAYER_MAX_X,d0                            ;Make sure the player is not at the right edge of play field
+00001426  0480 00000016            583      sub.l   #PLAYER_SPRITE_WIDTH,d0
+0000142C  E948                     584      lsl     #FRAC_BITS,d0
+0000142E  B078 13D0                585      cmp.w   PlayerPosX,d0
+00001432  6F00 000A                586      ble     AddDown                                     ;If so, don't keep moving right
+00001436  0679 0011 000015A2       587      add.w   #PLAYER_ACCELERATION,CurrentXSpeed          ;Else add right speed
+0000143E                           588    
+0000143E                           589  AddDown:
+0000143E  E049                     590      lsr     #8,d1                                       ;Shift the input to check the next key
+00001440  B238 00FF                591      cmp.b   $FF,d1                                      ;If down is not pressed
+00001444  6600 002C                592      bne     AddLeft                                     ;Skip
+00001448                           593      ;Move down
+00001448  303C 01E0                594      move.w  #SCREEN_HEIGHT,d0                           ;Check if player is at bottom of play field
+0000144C  0480 00000013            595      sub.l   #PLAYER_SPRITE_HEIGHT,d0                    ;Adjust to bottom of player
+00001452  0480 00000040            596      sub.l   #GROUND_HEIGHT,d0
+00001458  5380                     597      sub.l   #1,d0
+0000145A  E948                     598      lsl     #FRAC_BITS,d0
+0000145C  B078 13D2                599      cmp.w   PlayerPosY,d0                               ;If so, skip
+00001460  6F00 0010                600      ble     AddLeft                         
+00001464  0679 0011 000015A4       601      add.w   #PLAYER_ACCELERATION,CurrentYSpeed          ;Else add downward movement
+0000146C  11FC 0002 13CE           602      move.b  #2,PlayerMoveState                          ;Update movement state for animation
+00001472                           603      
+00001472                           604  AddLeft:
+00001472  4841                     605      swap    d1                                          ;Check next input key
+00001474  B238 00FF                606      cmp.b   $FF,d1
+00001478  6600 0014                607      bne     AddUp                                       ;If no left input, skip
+0000147C                           608      ;Move Left
+0000147C  0C78 0010 13D4           609      cmp.w   #1<<FRAC_BITS,PlayerScreenX                 ;Check if at edge of screen
+00001482  6F00 000A                610      ble     AddUp                                       ;If so, skip
+00001486  0479 0011 000015A2       611      sub.w   #PLAYER_ACCELERATION,CurrentXSpeed          ;Else, add left motion
+0000148E                           612      
+0000148E                           613  AddUp:
+0000148E  E049                     614      lsr     #8,d1                                       ;Check up key press
+00001490  B238 00FF                615      cmp.b   $FF,d1
+00001494  6600 001A                616      bne     CalcMovement                                ;If not, skip and calculate movement vector
+00001498                           617      ;Move up
+00001498  0C78 0400 13D6           618      cmp.w   #HEADER_HEIGHT<<FRAC_BITS,PlayerScreenY     ;Check if at top of play field
+0000149E  6F00 00AC                619      ble     InputEnd                                    ;If so, skip
+000014A2  0479 0011 000015A4       620      sub.w   #PLAYER_ACCELERATION,CurrentYSpeed          ;Else, add upward movement
+000014AA  11FC 0000 13CE           621      move.b  #0,PlayerMoveState                          ;Set animation state to moving up
+000014B0                           622      
+000014B0                           623  CalcMovement:                                           ;Take input and calculate player movement vector
+000014B0  4280                     624      clr.l   d0
+000014B2                           625  CheckXMin:
+000014B2  3039 000015A2            626      move.w  CurrentXSpeed,d0                            ;Add the X speed to the player position
+000014B8  3238 13D0                627      move.w  PlayerPosX,d1
+000014BC  D240                     628      add.w   d0,d1
+000014BE                           629      
+000014BE  B27C 0001                630      cmp.w   #1,d1                                       ;Check if this results in out of bounds
+000014C2  6C00 0026                631      bge     CheckXMax
+000014C6  B07C 0000                632      cmp.w   #0,d0                                       ;Check if we're moving left
+000014CA  6E00 001E                633      bgt     CheckXMax   
+000014CE  33FC 0000 000015A2       634      move.w  #0,CurrentXSpeed                            ;If so, set X speed to 0 to prevent going out of bounds
+000014D6                           635      
+000014D6  3238 13D0                636      move.w  PlayerPosX,d1                               ;Check if the player is all the way at the left edge of screen
+000014DA  E849                     637      lsr     #FRAC_BITS,d1
+000014DC  B27C 0000                638      cmp.w   #0,d1
+000014E0  6E00 0008                639      bgt     CheckXMax                                   ;If not, move on
+000014E4  31FC 0010 13D0           640      move.w  #1<<FRAC_BITS,PlayerPosX                    ;Else set to X=1 so bitmap can be drawn completely and prevent negative positions
+000014EA                           641      
+000014EA                           642  CheckXMax:
+000014EA  3238 13D0                643      move.w  PlayerPosX,d1                               ;Add X speed to player position
+000014EE  D240                     644      add.w   d0,d1
+000014F0                           645      
+000014F0  B27C 0A00                646      cmp.w   #PLAYER_MAX_X<<FRAC_BITS,d1                 ;Check if out of bounds to the right
+000014F4  6F00 0012                647      ble     CheckYMin                                   ;If not, X component is ready to add
+000014F8  B07C 0000                648      cmp.w   #0,d0                                       ;Are we going right?
+000014FC  6F00 000A                649      ble     CheckYMin                                   ;If not, X is ready to add
+00001500                           650      
+00001500  33FC 0000 000015A2       651      move.w  #0,CurrentXSpeed                            ;If we are going right and at the edge, set X speed to 0
+00001508                           652      
+00001508                           653  CheckYMin:
+00001508  3039 000015A4            654      move.w  CurrentYSpeed,d0                            ;Check Y position + speed against top of play field
+0000150E  3238 13D2                655      move.w  PlayerPosY,d1
+00001512  D240                     656      add.w   d0,d1
+00001514                           657      
+00001514  B27C 0400                658      cmp.w   #HEADER_HEIGHT<<FRAC_BITS,d1
+00001518  6E00 0012                659      bgt     CheckYMax
+0000151C  B07C 0000                660      cmp.w   #0,d0
+00001520  6E00 000A                661      bgt     CheckYMax
+00001524  33FC 0000 000015A4       662      move.w  #0,CurrentYSpeed                            ;If at top and moving up, set Y speed to 0
+0000152C                           663      
+0000152C                           664  CheckYMax:
+0000152C  3238 13D2                665      move.w  PlayerPosY,d1                               ;Check Y position + speed against bottom of play field
+00001530  D240                     666      add.w   d0,d1
+00001532                           667      
+00001532  343C 18D0                668      move.w  #PLAYER_MAX_Y<<FRAC_BITS,d2
+00001536  B242                     669      cmp.w   d2,d1
+00001538  6F00 0012                670      ble     InputEnd
+0000153C  B07C 0000                671      cmp.w   #0,d0
+00001540  6F00 000A                672      ble     InputEnd
+00001544                           673      
+00001544  33FC 0000 000015A4       674      move.w  #0,CurrentYSpeed                            ;If moving down and at bottom, set Y speed to 0
+0000154C                           675  
+0000154C                           676  InputEnd:
+0000154C  3039 000015A2            677      move.w  CurrentXSpeed,d0                            ;If speed is not 0
+00001552  6700 001A                678      beq     AddXSpeed
+00001556                           679      
+00001556  B07C 0000                680      cmp.w   #0,d0                                       ;Slow player down
+0000155A  6E00 000C                681      bgt     SubtractFrictionX                           ;If moving right, subtract friction
+0000155E                           682      
+0000155E  5679 000015A2            683      add.w   #PLAYER_FRICTION,CurrentXSpeed              ;Else moving left, so add friction
+00001564  6000 0008                684      bra     AddXSpeed
+00001568                           685      
+00001568                           686  SubtractFrictionX:
+00001568  5779 000015A2            687      sub.w   #PLAYER_FRICTION,CurrentXSpeed
+0000156E                           688      
+0000156E                           689  AddXSpeed:
+0000156E  D178 13D0                690      add.w   d0,PlayerPosX                               ;Add the current X speed to the player position
+00001572                           691      
+00001572  3039 000015A4            692      move.w  CurrentYSpeed,d0                            ;Check if Y speed is positive or negative and adjust for friction
+00001578  6700 001A                693      beq     AddYSpeed                                   ;If 0, no need to slow down
+0000157C                           694      
+0000157C  B07C 0000                695      cmp.w   #0,d0
+00001580  6E00 000C                696      bgt     SubtractFrictionY                           ;If positive, subtract friction
+00001584                           697      
+00001584  5679 000015A4            698      add.w   #PLAYER_FRICTION,CurrentYSpeed              ;If negative, add friction
+0000158A  6000 0008                699      bra     AddYSpeed
+0000158E                           700      
+0000158E                           701  SubtractFrictionY:
+0000158E  5779 000015A4            702      sub.w   #PLAYER_FRICTION,CurrentYSpeed              ;Subtract friction
+00001594                           703      
+00001594                           704  AddYSpeed:
+00001594  D178 13D2                705      add.w   d0,PlayerPosY                               ;Add Y speed to player position
+00001598                           706  
+00001598  4EB8 135E                707      jsr     CheckPlayerCollision                        ;After updating position, check collisions
+0000159C  4CDF 0003                708      movem.l (a7)+,d0-d1
+000015A0  4E75                     709      rts
+000015A2                           710  
+000015A2= 0000                     711  CurrentXSpeed   dc.w    0                               ;Store current speed for acceleration
+000015A4= 0000                     712  CurrentYSpeed   dc.w    0
+000015A6                           713  
+000015A6                           714  
+000015A6                           715  
+000015A6                           716  
+000015A6                           717  -------------------- end include --------------------
+000015A6                           718      include 'DispBMP.X68'
+000015A6                           719  ALL_REGISTERS       REG d0-d7/a0-a6
+000015A6                           720  
+000015A6  =00000104                721  CORNER_X            EQU 260         ;Parameters for display bounds
+000015A6  =000000FA                722  CORNER_Y            EQU 250
+000015A6  =00000010                723  CHUNK_WIDTH         EQU 16
+000015A6  =00000010                724  CHUNK_HEIGHT        EQU 16
+000015A6  =00000032                725  SCREEN_X            EQU 50
+000015A6  =00000032                726  SCREEN_Y            EQU 50
+000015A6                           727  
+000015A6  =0000000A                728  START_PIXELS_OFFSET EQU 10          ;Constant offsets within bitmap file format to get information
+000015A6  =00000012                729  WIDTH_OFFSET        EQU 18
+000015A6  =00000016                730  HEIGHT_OFFSET       EQU 22
+000015A6  =0000001C                731  DEPTH_OFFSET        EQU 28
+000015A6                           732  
+000015A6  =00000008                733  ONE_BYTE            EQU 8           ;Used for bit shift calculations
+000015A6                           734  
+000015A6  =0000000E                735  CORNER_X_OFFSET     EQU 14          ;Stack parameters
+000015A6  =0000000C                736  CORNER_Y_OFFSET     EQU 12
+000015A6  =0000000A                737  CHUNK_WIDTH_OFFSET  EQU 10
+000015A6  =00000008                738  CHUNK_HEIGHT_OFFSET EQU 8
+000015A6  =00000006                739  SCREEN_X_OFFSET     EQU 6
+000015A6  =00000004                740  SCREEN_Y_OFFSET     EQU 4
+000015A6                           741  
+000015A6  =0000424D                742  BITMAP_SIGNATURE    EQU 'BM'        ;Information to check if input file is currently supported
+000015A6  =00000018                743  SUPPORTED_DEPTH     EQU 24
+000015A6                           744  
+000015A6  =00000050                745  TASK_PEN_COLOR      EQU 80          ;SimI/O TRAP codes
+000015A6  =00000052                746  TASK_DRAW_PIXEL     EQU 82
+000015A6  =00000021                747  TASK_SET_RES        EQU 33
+000015A6                           748     
+000015A6                           749  InitImage:
+000015A6  48E7 FFFE                750      movem.l ALL_REGISTERS,-(a7)
+000015AA  0C50 424D                751      cmp     #BITMAP_SIGNATURE,(a0)              ;Check if using a bitmap file by signature
+000015AE  6600 0024                752      bne     FINISH                              ;If not, exit
+000015B2                           753          
+000015B2  0C28 0018 001C           754      cmp.b   #SUPPORTED_DEPTH,DEPTH_OFFSET(a0)   ;Check that color depth is supported
+000015B8  6600 001A                755      bne     FINISH                              ;If not, exit
+000015BC                           756      
+000015BC  3F00                     757      move.w  d0,-(a7)                            ;Top left corner X
+000015BE  3F01                     758      move.w  d1,-(a7)                            ;Top left corner Y
+000015C0                           759      
+000015C0  3F02                     760      move.w  d2,-(a7)                            ;Chunk width
+000015C2  3F03                     761      move.w  d3,-(a7)                            ;Chunk height
+000015C4                           762      
+000015C4  3F04                     763      move.w  d4,-(a7)                            ;Screen position to draw X
+000015C6  3F05                     764      move.w  d5,-(a7)                            ;Screen position to draw Y
+000015C8                           765  
+000015C8  4EB9 000015DA            766      jsr     DrawImage
+000015CE                           767      
+000015CE  DFFC 0000000C            768      add.l   #12,a7                              ;Unroll stack
+000015D4                           769      
+000015D4                           770  FINISH:    
+000015D4  4CDF 7FFF                771      movem.l (a7)+,ALL_REGISTERS
+000015D8  4E75                     772      rts
+000015DA                           773  
+000015DA                           774  DrawImage:
+000015DA  2028 000A                775      move.l  START_PIXELS_OFFSET(a0),d0          ;Get beginning of pixel array in the file
+000015DE  4EB9 000016DA            776      jsr     ByteSwap
+000015E4  23C0 000016E2            777      move.l  d0,StartPixels
+000015EA                           778      
+000015EA  2028 0012                779      move.l  WIDTH_OFFSET(a0),d0                 ;Get the width of the image
+000015EE  4EB9 000016DA            780      jsr     ByteSwap
+000015F4  23C0 000016E6            781      move.l  d0,ImgWidth
+000015FA                           782      
+000015FA                           783      ;Bitmap format ensures row size is divisible by 4, if not it adds padding bits to the end of the row
+000015FA                           784      ;Must account for these in loops, this will get the amount of padding per row so we can account for it
+000015FA  2200                     785      move.l  d0,d1
+000015FC  C2FC 0003                786      mulu    #3,d1
+00001600  C27C 0003                787      and     #3,d1
+00001604  7004                     788      move.l  #4,d0
+00001606  9081                     789      sub.l   d1,d0
+00001608  C07C 0003                790      and     #3,d0
+0000160C  33C0 000016EE            791      move.w  d0,RowPadding
+00001612  47F9 000016EE            792      lea     RowPadding,a3
+00001618                           793      
+00001618  2028 001C                794      move.l  DEPTH_OFFSET(a0),d0                 ;Get the color depth from the file
+0000161C  4EB9 000016DA            795      jsr     ByteSwap
+00001622  E648                     796      lsr     #3,d0                               ;Divide by 8 to convert from bit depth to bytes, shift right 3 bits
+00001624  33C0 000016F2            797      move.w  d0,BytesPerPixel
+0000162A                           798      
+0000162A  2028 0016                799      move.l  HEIGHT_OFFSET(a0),d0                ;Get the height of the image
+0000162E  4EB9 000016DA            800      jsr     ByteSwap
+00001634  23C0 000016EA            801      move.l  d0,ImgHeight
+0000163A                           802      
+0000163A  D1F9 000016E2            803      add.l   StartPixels,a0                      ;Set the location of the pixel array as our index
+00001640                           804  
+00001640  43F9 000016EA            805      lea     ImgHeight,a1                        ;Get image width and height from memory and store references
+00001646  45F9 000016E6            806      lea     ImgWidth,a2
+0000164C                           807  
+0000164C  2012                     808      move.l  (a2),d0                             ;Add row width in pixels to padding
+0000164E  906F 000A                809      sub.w   CHUNK_WIDTH_OFFSET(a7),d0           ;Subtract chunk width in pixels from this sum
+00001652  C0F9 000016F2            810      mulu    BytesPerPixel,d0                    ;Multiply by bytes per pixel
+00001658  D053                     811      add.w   (a3),d0                             ;In bitmap pixel arrays there is padding to make each row divisible by 4, add to the index to skip
+0000165A  33C0 000016F0            812      move.w  d0,RowPaddingByteOffset
+00001660                           813      
+00001660  302F 000E                814      move.w  CORNER_X_OFFSET(a7),d0              ;Set inital x position in pixel array
+00001664  C0F9 000016F2            815      mulu    BytesPerPixel,d0
+0000166A  D1C0                     816      add.l   d0,a0
+0000166C                           817      
+0000166C  2011                     818      move.l  (a1),d0                             ;Set initial y position in pixel array
+0000166E  906F 000C                819      sub.w   CORNER_Y_OFFSET(a7),d0              ;Get image height - starting y - chunk height
+00001672  906F 0008                820      sub.w   CHUNK_HEIGHT_OFFSET(a7),d0
+00001676  2212                     821      move.l  (a2),d1                             ;Multiply by total number of bytes per row to move down correct number of rows
+00001678  C2F9 000016F2            822      mulu    BytesPerPixel,d1                    ;Multiply the number of pixels by color depth to get number of bytes per row
+0000167E  D253                     823      add.w   (a3),d1                             ;Add padding bytes here
+00001680  C0C1                     824      mulu    d1,d0
+00001682  D1C0                     825      add.l   d0,a0                               ;Add BytesPerRow * Starting Y to get to starting pixel index
+00001684                           826      
+00001684  536F 000A                827      sub.w   #1,CHUNK_WIDTH_OFFSET(a7)           ;Comparisons are made with 0 so subtract 1 from indices
+00001688  536F 0008                828      sub.w   #1,CHUNK_HEIGHT_OFFSET(a7)
+0000168C  3C2F 000A                829      move.w  CHUNK_WIDTH_OFFSET(a7),d6           ;Set indices for loops for rows and columns
+00001690  3E2F 0008                830      move.w  CHUNK_HEIGHT_OFFSET(a7),d7
+00001694                           831      
+00001694  362F 000A                832      move.w  CHUNK_WIDTH_OFFSET(a7),d3           ;Move data from stack to registers for faster calculations
+00001698  382F 0006                833      move.w  SCREEN_X_OFFSET(a7),d4
+0000169C  3A2F 0004                834      move.w  SCREEN_Y_OFFSET(a7),d5
+000016A0                           835  
+000016A0                           836  RowLoop:
+000016A0  4241                     837      clr.w   d1                                  ;Clear lower word of d0, this is faster than clearing the long and equally safe
+000016A2  1218                     838      move.b  (a0)+,d1                            ;Get first byte of color (BLUE)
+000016A4  4841                     839      swap    d1                                  ;Swap the words to get the BLUE value in the correct byte position for Easy68k
+000016A6  1218                     840      move.b  (a0)+,d1                            ;Get the second byte of color (GREEN)
+000016A8  E149                     841      lsl     #ONE_BYTE,d1                        ;Shift 1 byte to get the GREEN value in the correct position
+000016AA  1218                     842      move.b  (a0)+,d1                            ;Get the third byte of color (RED)
+000016AC                           843      
+000016AC  B2BC 00FF00FF            844      cmp.l   #$00FF00FF,d1
+000016B2  6700 0014                845      beq     MovePixel
+000016B6                           846      
+000016B6                           847  ;TODO 32 bit color: XOR with alpha bits, if 00, skip pixel
+000016B6  7050                     848      move.l  #TASK_PEN_COLOR,d0                  ;Set the pen color to the loaded pixel color
+000016B8  4E4F                     849      TRAP    #15
+000016BA                           850      
+000016BA  3203                     851      move.w  d3,d1                               ;Get the current element of the row
+000016BC  9246                     852      sub.w   d6,d1
+000016BE  D244                     853      add.w   d4,d1                               ;Adjust to the indicated screen position X
+000016C0                           854      
+000016C0  2407                     855      move.l  d7,d2                               ;Get the current row
+000016C2  D445                     856      add.w   d5,d2                               ;Adjust to the indicated screen position Y
+000016C4                           857      
+000016C4  7052                     858      move.l  #TASK_DRAW_PIXEL,d0                 ;Draw the pixel at the correct position
+000016C6  4E4F                     859      TRAP    #15
+000016C8                           860      
+000016C8                           861  MovePixel:    
+000016C8  51CE FFD6                862      dbra    d6,RowLoop                          ;If not at the end of the current row, loop again
+000016CC                           863      
+000016CC  D0F9 000016F0            864      add.w   RowPaddingByteOffset,a0             ;Adjust index to beginning of next row of chunk
+000016D2  3C03                     865      move.w  d3,d6                               ;Reset the x index to the width-1
+000016D4  51CF FFCA                866      dbra    d7,RowLoop
+000016D8                           867  
+000016D8  4E75                     868      rts
+000016DA                           869  
+000016DA                           870  ;Switch Endianness of d0
+000016DA                           871  ;Consider the register as 4 bytes, a,b,c,d
+000016DA                           872  ;Reorder contents to d,c,b,a
+000016DA                           873  ByteSwap:
+000016DA  E058                     874      ror     #ONE_BYTE,d0
+000016DC  4840                     875      swap    d0
+000016DE  E058                     876      ror     #ONE_BYTE,d0
+000016E0                           877      
+000016E0  4E75                     878      rts
+000016E2                           879      
+000016E2                           880  StartPixels             ds.l    1
+000016E6                           881  ImgWidth                ds.l    1
+000016EA                           882  ImgHeight               ds.l    1
+000016EE                           883  RowPadding              ds.w    1
+000016F0                           884  RowPaddingByteOffset    ds.w    1
+000016F2                           885  BytesPerPixel           ds.w    1
+000016F4                           886  
+000016F4                           887  
+000016F4                           888  
+000016F4                           889  
+000016F4                           890  
+000016F4                           891  
+000016F4                           892  
+000016F4                           893  -------------------- end include --------------------
+000016F4                           894      include 'random.X68'
+000016F4                           895  ALL_REG                 REG     D0-D7/A0-A6
+000016F4                           896  
+000016F4  =00000008                897  GET_TIME_COMMAND        equ     8
+000016F4                           898  
+000016F4                           899  
+000016F4                           900  
+000016F4  4EB9 00001738            901          jsr     seedRandomNumber
+000016FA  4286                     902      clr.l   d6
+000016FC  4EB9 00001750            903          jsr     getRandomByteIntoD6
+00001702  4286                     904      clr.l   d6
+00001704  4EB9 00001750            905          jsr     getRandomByteIntoD6
+0000170A  4286                     906      clr.l   d6
+0000170C  4EB9 00001750            907          jsr     getRandomByteIntoD6
+00001712  4286                     908      clr.l   d6
+00001714  4EB9 00001750            909          jsr     getRandomByteIntoD6
+0000171A  4286                     910      clr.l   d6
+0000171C  4EB9 00001750            911          jsr     getRandomByteIntoD6
+00001722  4286                     912      clr.l   d6
+00001724  4EB9 00001750            913          jsr     getRandomByteIntoD6
+0000172A  4286                     914      clr.l   d6
+0000172C  4EB9 0000178A            915          jsr     getRandomLongIntoD6
+00001732                           916  
+00001732                           917          
+00001732  103C 0009                918          move.b  #9,d0
+00001736  4E4F                     919          TRAP    #15
+00001738                           920  
+00001738                           921  
+00001738                           922  
+00001738                           923  seedRandomNumber
+00001738  48E7 FFFE                924          movem.l ALL_REG,-(sp)
+0000173C  4286                     925          clr.l   d6
+0000173E  103C 0008                926          move.b  #GET_TIME_COMMAND,d0
+00001742  4E4F                     927          TRAP    #15
+00001744                           928  
+00001744  23C1 000017BE            929          move.l  d1,RANDOMVAL
+0000174A  4CDF 7FFF                930          movem.l (sp)+,ALL_REG
+0000174E  4E75                     931          rts
+00001750                           932  
+00001750                           933  getRandomByteIntoD6
+00001750  48E7 8000                934          movem.l d0,-(sp)
+00001754  48E7 4000                935          movem.l d1,-(sp)
+00001758  48E7 2000                936          movem.l d2,-(sp)
+0000175C  2039 000017BE            937          move.l  RANDOMVAL,d0
+00001762  72AF                     938          moveq   #$AF-$100,d1
+00001764  7412                     939          moveq   #18,d2
+00001766                           940  Ninc0   
+00001766  D080                     941      add.l   d0,d0
+00001768  6400 0004                942      bcc Ninc1
+0000176C  B300                     943      eor.b   d1,d0
+0000176E                           944  Ninc1
+0000176E  51CA FFF6                945      dbf d2,Ninc0
+00001772                           946      
+00001772  23C0 000017BE            947      move.l  d0,RANDOMVAL
+00001778  4286                     948      clr.l   d6
+0000177A  1C00                     949      move.b  d0,d6
+0000177C                           950      
+0000177C  4CDF 0004                951          movem.l (sp)+,d2
+00001780  4CDF 0002                952          movem.l (sp)+,d1
+00001784  4CDF 0001                953          movem.l (sp)+,d0
+00001788  4E75                     954          rts
+0000178A                           955          
+0000178A                           956  
+0000178A                           957  getRandomLongIntoD6
+0000178A  48E7 FFFE                958          movem.l ALL_REG,-(sp)
+0000178E  4EB8 1750                959          jsr     getRandomByteIntoD6
+00001792  1A06                     960          move.b  d6,d5
+00001794  4EB8 1750                961          jsr     getRandomByteIntoD6
+00001798  E18D                     962          lsl.l   #8,d5
+0000179A  1A06                     963          move.b  d6,d5
+0000179C  4EB8 1750                964          jsr     getRandomByteIntoD6
+000017A0  E18D                     965          lsl.l   #8,d5
+000017A2  1A06                     966          move.b  d6,d5
+000017A4  4EB8 1750                967          jsr     getRandomByteIntoD6
+000017A8  E18D                     968          lsl.l   #8,d5
+000017AA  1A06                     969          move.b  d6,d5
+000017AC  23C5 000017C2            970          move.l  d5,TEMPRANDOMLONG
+000017B2  4CDF 7FFF                971          movem.l (sp)+,ALL_REG
+000017B6  2C39 000017C2            972          move.l  TEMPRANDOMLONG,d6
+000017BC  4E75                     973          rts
+000017BE                           974  
+000017BE                           975  
+000017BE                           976  RANDOMVAL       ds.l    1
+000017C2                           977  TEMPRANDOMLONG  ds.l    1
+000017C6                           978  
+000017C6                           979  
+000017C6                           980  
+000017C6                           981  
+000017C6                           982  
+000017C6                           983  
+000017C6                           984  -------------------- end include --------------------
+000017C6                           985      include 'Enemy.X68'
+000017C6  =0000000A                986  MAX_NUM_ENEMIES     EQU 10                      ;Amount of enemies we can have on the screen at one time
+000017C6  =00000040                987  ENEMY_SPEED         EQU 64                      ;The enemies' base speed
+000017C6  =00000010                988  ENEMY_WIDTH         EQU 16                      ;The width of the enemy sprite in pixels
+000017C6  =00000011                989  ENEMY_HEIGHT        EQU 17                      ;The height of the enemy
+000017C6  =000000C8                990  ENEMY_SPAWN_CHANCE  EQU 200                     ;The rate at which enemies spawn
+000017C6                           991  
+000017C6  =00000002                992  ENEMY_SPEED_FACTOR  EQU 2                       ;How much enemies speed up at every interval
+000017C6  =00000064                993  ENEMY_SPEED_TIMER   EQU 100                     ;How often enemies speed up
+000017C6                           994  
+000017C6                           995  
+000017C6                           996  CheckEnemySpawn:
+000017C6  48E7 FFFE                997      movem.l         ALL_REG,-(a7)                           ;Push registers to stack
+000017CA  0C79 000A 00001D14       998      cmp.w           #MAX_NUM_ENEMIES,NumActiveEnemies       ;Don't calculate random if we're already at the maximum number of enemies
+000017D2  6C00 0018                999      bge             EndCheckEnemySpawn
+000017D6                          1000      
+000017D6  4EB8 1750               1001      jsr             GetRandomByteIntoD6                     ;Get our random number
+000017DA  8CFC 00C8               1002      divu            #ENEMY_SPAWN_CHANCE,d6                  ;Compare it to our random chance
+000017DE  BC7C 0001               1003      cmp.w           #1,d6                                   
+000017E2  6600 0008               1004      bne             EndCheckEnemySpawn                      ;If we pass, spawn an enemy
+000017E6  4EB9 000017F2           1005      jsr             SpawnEnemy
+000017EC                          1006  
+000017EC                          1007  EndCheckEnemySpawn:    
+000017EC  4CDF 7FFF               1008      movem.l          (a7)+,ALL_REG                          ;Restore stack
+000017F0  4E75                    1009      rts
+000017F2                          1010  
+000017F2                          1011  
+000017F2                          1012  SpawnEnemy:
+000017F2  48E7 FFFE               1013      movem.l         ALL_REG,-(a7)                           ;Push registers to stack
+000017F6                          1014      
+000017F6  4EB8 178A               1015      jsr             GetRandomLongIntoD6                     ;Get random for Y location
+000017FA                          1016      
+000017FA  41F9 00001CEC           1017      lea             EnemyPosArray,a0                        ;Get address of enemy array
+00001800  4280                    1018      clr.l           d0
+00001802  3039 00001D14           1019      move.w          NumActiveEnemies,d0                     ;Get number of active enemies
+00001808  E548                    1020      lsl             #2,d0                                   ;Multiply by 4 to get number of bytes already in use by active enemies
+0000180A  D1C0                    1021      add.l           d0,a0                                   ;Add this to enemy array to offset to unused data
+0000180C                          1022      
+0000180C  303C 0280               1023      move.w          #SCREEN_WIDTH,d0                        ;Get starting X position at right side of screen
+00001810  E948                    1024      lsl             #FRAC_BITS,d0
+00001812  3080                    1025      move.w          d0,(a0)
+00001814  5488                    1026      add.l           #2,a0
+00001816                          1027      
+00001816  303C 01E0               1028      move.w          #SCREEN_HEIGHT,d0                       ;Get random starting Y within field of play
+0000181A  0440 0040               1029      sub.w           #GROUND_HEIGHT,d0
+0000181E  0440 0011               1030      sub.w           #ENEMY_HEIGHT,d0
+00001822  0440 0040               1031      sub.w           #HEADER_HEIGHT,d0                       ;Get range of coordinates
+00001826  CCBC 0000FFFF           1032      and.l           #$0000FFFF,d6
+0000182C  8CC0                    1033      divu            d0,d6                                   ;Divide by random word
+0000182E  4846                    1034      swap            d6                                      ;Set location to remainder
+00001830  0646 0040               1035      add.w           #HEADER_HEIGHT,d6                       ;Offset to below header
+00001834  E94E                    1036      lsl             #FRAC_BITS,d6                           ;Shift for fixed point
+00001836  3086                    1037      move.w          d6,(a0)                                 ;Store location
+00001838                          1038  
+00001838  5379 00001D16           1039      sub.w           #1,DeadEnemies                          ;Subtract from dead enemy counter
+0000183E  5279 00001D14           1040      add.w           #1,NumActiveEnemies                     ;Add to active enemy counter
+00001844                          1041      
+00001844  4CDF 7FFF               1042      movem.l         (a7)+,ALL_REG                           ;Restore stack
+00001848  4E75                    1043      rts
+0000184A                          1044      
+0000184A                          1045      
+0000184A                          1046  MoveEnemies:
+0000184A  48E7 FFFE               1047      movem.l         ALL_REG,-(a7)                       ;Push registers to stack
+0000184E                          1048      
+0000184E  3039 00001D14           1049      move.w          NumActiveEnemies,d0                 ;Get number of active enemies
+00001854  6700 00EC               1050      beq             EnemyMoveEnd                        ;If it's 0, we don't have any enemies to move
+00001858  5340                    1051      sub.w           #1,d0                               ;Otherwise, set our loop index
+0000185A  3E00                    1052      move.w          d0,d7
+0000185C                          1053      
+0000185C                          1054  MoveEnemiesInner:
+0000185C  41F9 00001CEC           1055      lea             EnemyPosArray,a0                    ;Get the address of our enemy array
+00001862  3039 00001D14           1056      move.w          NumActiveEnemies,d0                 ;Get the number of active enemies
+00001868  5340                    1057      sub.w           #1,d0                               ;Less 1 for 0th position
+0000186A  9047                    1058      sub.w           d7,d0                               ;Subtract our loop index from live enemies to get our array index
+0000186C  E548                    1059      lsl             #2,d0                               ;Multiply by 4 to get number of bytes to offset
+0000186E  33C0 00001CEA           1060      move.w          d0,CurrentIndex                     ;Set this to our current index for the enemy array
+00001874  D0C0                    1061      add.w           d0,a0                               ;Add to the array address to offset
+00001876                          1062          
+00001876  7410                    1063      move.l          #ENEMY_WIDTH,d2                     ;Get the enemy sprite width and height
+00001878  7611                    1064      move.l          #ENEMY_HEIGHT,d3
+0000187A  4284                    1065      clr.l           d4
+0000187C  3810                    1066      move.w          (a0),d4                             ;Get the enemy X position
+0000187E  6E00 0004               1067      bgt             EnemyPositive                       ;If it is greater than 0, keep moving
+00001882  7800                    1068      move.l          #0,d4                               ;If we are 0 or less, set to 0
+00001884                          1069  
+00001884                          1070  EnemyPositive:
+00001884  E84C                    1071      lsr             #FRAC_BITS,d4                       ;Get X coordinate in pixels
+00001886  2004                    1072      move.l          d4,d0                               
+00001888  4285                    1073      clr.l           d5          
+0000188A  3A28 0002               1074      move.w          2(a0),d5                            ;Get Y coordinate
+0000188E  E84D                    1075      lsr             #FRAC_BITS,d5                       ;In pixels
+00001890  2205                    1076      move.l          d5,d1
+00001892  BA7C FFFF               1077      cmp.w           #$FFFF,d5                           ;If set to -1, enemy is dead so skip
+00001896  6700 00A6               1078      beq             NextEnemy
+0000189A                          1079      
+0000189A  2C08                    1080      move.l          a0,d6                               ;Get X position
+0000189C                          1081      
+0000189C  48E7 FFFE               1082      movem.l         ALL_REG,-(a7)                       ;Push registers to stack
+000018A0  2204                    1083      move.l          d4,d1                               ;Get enemy screen coordinates
+000018A2  2405                    1084      move.l          d5,d2
+000018A4  2601                    1085      move.l          d1,d3
+000018A6  2802                    1086      move.l          d2,d4
+000018A8  0683 00000010           1087      add.l           #ENEMY_WIDTH,d3                     ;Get right and bottom coordinates for Inval
+000018AE  0684 00000011           1088      add.l           #ENEMY_HEIGHT,d4
+000018B4                          1089  
+000018B4  4EB8 1240               1090      jsr             InvalArea                           ;Clear old pixels
+000018B8  4CDF 7FFF               1091      movem.l         (a7)+,ALL_REG                       ;Restore stack
+000018BC  2046                    1092      move.l          d6,a0                               ;Save the X position
+000018BE                          1093      
+000018BE  B87C 0001               1094      cmp             #1,d4                               ;Check if enemy is at left side of screen
+000018C2  6D00 0028               1095      blt             EnemyDie                            ;If so, die
+000018C6                          1096      
+000018C6  7040                    1097      move.l          #ENEMY_SPEED,d0                     ;Otherwise, keep moving left
+000018C8  D079 00001D1C           1098      add.w           EnemySpeedBonus,d0                  ;Add speed based on how long player has lived
+000018CE  9150                    1099      sub.w           d0,(a0)                             ;Subtract speed from current position
+000018D0                          1100      
+000018D0                          1101  DrawEnemy:    
+000018D0  4280                    1102      clr.l           d0                                  ;Now that the position is updated, draw the enemy
+000018D2  4281                    1103      clr.l           d1
+000018D4  5382                    1104      sub.l           #1,d2                               ;Set to -1 for image loop
+000018D6  3810                    1105      move.w          (a0),d4                             ;Get the X position
+000018D8  E84C                    1106      lsr             #FRAC_BITS,d4                       ;On screen
+000018DA  41F9 00001984           1107      lea             EnemySprite,a0                      ;Get the sprite image address
+000018E0  4EB8 15A6               1108      jsr             InitImage                           ;Draw the sprite
+000018E4                          1109      
+000018E4  51CF FF76               1110      dbra            d7,MoveEnemiesInner                 ;Go to the next enemy
+000018E8  6000 0058               1111      bra             EnemyMoveEnd                        ;Finished looping through all enemies
+000018EC                          1112      
+000018EC                          1113  EnemyDie:
+000018EC  D0F9 00001CEA           1114      add.w           CurrentIndex,a0                     ;The current enemy is dead, go to the next one
+000018F2  43F9 00001CEC           1115      lea             EnemyPosArray,a1                    ;Get the array of enemies
+000018F8                          1116      
+000018F8  45F9 00001CEC           1117      lea             EnemyPosArray,a2                    ;Copy the array of enemies
+000018FE  588A                    1118      add.l           #4,a2                               ;Get the address of the next enemy
+00001900                          1119      
+00001900  3C07                    1120      move.w          d7,d6                               ;Copy our current loop counter
+00001902  6F00 002E               1121      ble             EndShift                            ;If we've made it to the end of the array, exit the loop
+00001906                          1122      
+00001906                          1123  ShiftArray:
+00001906  2449                    1124      move.l          a1,a2                               ;Loop through array to shift live enemies to front and dead enemies to end
+00001908  3A39 00001D14           1125      move.w          NumActiveEnemies,d5
+0000190E  5385                    1126      sub.l           #1,d5
+00001910  9A86                    1127      sub.l           d6,d5                               ;Subtract current index from number of live enemies to get offset
+00001912  383C 000A               1128      move.w          #MAX_NUM_ENEMIES,d4                 ;Check if at end of array
+00001916  5344                    1129      sub.w           #1,d4
+00001918  BA44                    1130      cmp.w           d4,d5
+0000191A  6C00 0016               1131      bge             EndShift                            ;If so exit loop
+0000191E  E54D                    1132      lsl             #2,d5                               ;Multiply offset by 4 to get byte offset
+00001920  D5C5                    1133      add.l           d5,a2                               ;Add offset to enemy array
+00001922  24AA 0004               1134      move.l          4(a2),(a2)                          ;Move coordinates down in the array
+00001926                          1135      
+00001926                          1136  SetBits:
+00001926  257C FFFFFFFF 0004      1137      move.l          #$FFFFFFFF,4(a2)                    ;move -1,-1 to next position
+0000192E  51CE FFD6               1138      dbra            d6,ShiftArray                       ;loop again
+00001932                          1139      
+00001932                          1140  EndShift:    
+00001932  5279 00001D16           1141      add.w           #1,DeadEnemies                      ;Add to dead enemy counter
+00001938  5379 00001D14           1142      sub.w           #1,NumActiveEnemies                 ;Subtract from live enemy counter
+0000193E                          1143      
+0000193E                          1144  NextEnemy:
+0000193E  51CF FF1C               1145      dbra            d7,MoveEnemiesInner                 ;Go to next enemy movement
+00001942                          1146      
+00001942                          1147  EnemyMoveEnd:                                           ;All enemies have been moved
+00001942  303C 000A               1148      move.w          #MAX_NUM_ENEMIES,d0                 ;See how many enemies are alive
+00001946  9079 00001D16           1149      sub.w           DeadEnemies,d0
+0000194C  33C0 00001D14           1150      move.w          d0,NumActiveEnemies                 ;Store this
+00001952                          1151      
+00001952  4CDF 7FFF               1152      movem.l         (a7)+,ALL_REG                       ;Restore stack
+00001956  4E75                    1153      rts
+00001958                          1154      
+00001958                          1155      
+00001958                          1156  CheckEnemySpeedUp:
+00001958  48E7 FFFE               1157      movem.l         ALL_REG,-(a7)                       ;Push registers to stack
+0000195C                          1158      
+0000195C  4EB8 10E4               1159      jsr             GetTime                             ;Get the current time
+00001960  2039 00001D18           1160      move.l          EnemySpeedTimer,d0                  ;compare the last time enemy speed was updated to current time
+00001966  0680 00000064           1161      add.l           #ENEMY_SPEED_TIMER,d0
+0000196C  B081                    1162      cmp.l           d1,d0                               ;If we are above the threshhold
+0000196E  6C00 000E               1163      bge             CheckEnemySpeedUpEnd
+00001972                          1164      
+00001972  23C1 00001D18           1165      move.l          d1,EnemySpeedTimer                  ;Reset the timer
+00001978  5479 00001D1C           1166      add.w           #ENEMY_SPEED_FACTOR,EnemySpeedBonus ;Add speed
+0000197E                          1167      
+0000197E                          1168  CheckEnemySpeedUpEnd:
+0000197E  4CDF 7FFF               1169      movem.l         (a7)+,ALL_REG                       ;Restore stack
+00001982  4E75                    1170      rts
+00001984                          1171      
+00001984                          1172      
+00001984                          1173  
+00001984                          1174  EnemySprite         INCBIN  'enemy.bmp'                 ;Enemy sprite
+00001CEA= 0000                    1175  CurrentIndex        dc.w    0                           ;Current index in enemy array
+00001CEC                          1176  EnemyPosArray       ds.w    MAX_NUM_ENEMIES*2           ;Allocate memory for enemy coordinates
+00001D14                          1177  
+00001D14= 0000                    1178  NumActiveEnemies    dc.w    0                           ;Start with 0 active enemies
+00001D16= 000A                    1179  DeadEnemies         dc.w    MAX_NUM_ENEMIES
+00001D18                          1180  
+00001D18= 00000000                1181  EnemySpeedTimer     dc.l    0                           ;Timer for adding speed
+00001D1C= 0000                    1182  EnemySpeedBonus     dc.w    0                           ;Current additional speed
+00001D1E                          1183  
+00001D1E                          1184  
+00001D1E                          1185  
+00001D1E                          1186  
+00001D1E                          1187  -------------------- end include --------------------
+00001D1E                          1188      include 'Bullet.X68'
+00001D1E  =000000C8               1189  BULLET_SPEED            EQU 200                                 ;The speed of the bullets
+00001D1E  =00000004               1190  BULLET_WIDTH            EQU 4                                   ;Dimensions in pixels of the bullet
+00001D1E  =00000004               1191  BULLET_HEIGHT           EQU 4
+00001D1E                          1192  
+00001D1E  =00000058               1193  DRAW_ELLIPSE_TRAP_CODE  EQU 88                                  ;Sim68K task for drawing ellipses
+00001D1E                          1194  
+00001D1E  =0000000A               1195  MAX_PLAYER_BULLETS      EQU 10                                  ;Maximum number of bullets active at one time
+00001D1E  =0000000A               1196  PLAYER_FIRE_TIMER       EQU 10                                  ;Timer for holding fire button down
+00001D1E                          1197  
+00001D1E                          1198  
+00001D1E                          1199  PlayerFire:
+00001D1E  48E7 FFFE               1200      movem.l         ALL_REG,-(a7)                               ;Push registers to stack
+00001D22                          1201      
+00001D22  0C79 000A 00001F94      1202      cmp.w           #MAX_PLAYER_BULLETS,NumLivePlayerBullets    ;Make sure we are not at bullet capacity
+00001D2A  6C00 004A               1203      bge             EndPlayerFire
+00001D2E                          1204      
+00001D2E  0C79 0000 00001F98      1205      cmp.w           #0,PlayerFireTimer                          ;Make sure we are not waiting on the debounce timer
+00001D36  6E00 003E               1206      bgt             EndPlayerFire
+00001D3A                          1207      
+00001D3A  41F9 00001F6C           1208      lea             PlayerBullets,a0                            ;Get the bullets array
+00001D40  3039 00001F94           1209      move.w          NumLivePlayerBullets,d0                     ;Offset to first empty position
+00001D46  E548                    1210      lsl             #2,d0
+00001D48  D0C0                    1211      add.w           d0,a0
+00001D4A                          1212      
+00001D4A  7016                    1213      move.l          #PLAYER_SPRITE_WIDTH,d0                     ;Set position to spawn bullet
+00001D4C  E948                    1214      lsl             #FRAC_BITS,d0
+00001D4E  D078 13D0               1215      add.w           PlayerPosX,d0
+00001D52  3080                    1216      move.w          d0,(a0)                                     ;Initialize X at right side of player
+00001D54  7013                    1217      move.l          #PLAYER_SPRITE_HEIGHT,d0                    ;Initialize Y at center of player
+00001D56  E248                    1218      lsr             #1,d0
+00001D58  E948                    1219      lsl             #FRAC_BITS,d0
+00001D5A  D078 13D2               1220      add.w           PlayerPosY,d0
+00001D5E  3140 0002               1221      move.w          d0,2(a0)
+00001D62                          1222      
+00001D62  5279 00001F94           1223      add.w           #1,NumLivePlayerBullets                     ;Set counters
+00001D68  5379 00001F96           1224      sub.w           #1,NumDeadPlayerBullets
+00001D6E  33FC 000A 00001F98      1225      move.w          #PLAYER_FIRE_TIMER,PlayerFireTimer          ;Reset timer
+00001D76                          1226         
+00001D76                          1227  EndPlayerFire:
+00001D76  5379 00001F98           1228      sub.w           #1,PlayerFireTimer                          ;Decrement timer until we can fire again
+00001D7C  4CDF 7FFF               1229      movem.l         (a7)+,ALL_REG                               ;Restore stack
+00001D80  4E75                    1230      rts
+00001D82                          1231  
+00001D82                          1232      
+00001D82                          1233  UpdateBullets:
+00001D82  48E7 FFFE               1234      movem.l         ALL_REG,-(a7)                               ;Push registers to stack
+00001D86  0C79 0000 00001F94      1235      cmp.w           #0,NumLivePlayerBullets                     ;If there are no active bullets, end loop
+00001D8E  6F00 0084               1236      ble             EndUpdateBullets
+00001D92                          1237      
+00001D92  41F9 00001F6C           1238      lea             PlayerBullets,a0                            ;Initialize loop for all bullets
+00001D98  4287                    1239      clr.l           d7
+00001D9A  3E39 00001F94           1240      move.w          NumLivePlayerBullets,d7
+00001DA0  5347                    1241      sub.w           #1,d7
+00001DA2                          1242      
+00001DA2                          1243  UpdateBulletsInner:
+00001DA2  4281                    1244      clr.l           d1
+00001DA4  4282                    1245      clr.l           d2
+00001DA6                          1246      
+00001DA6  4EB9 00001EA6           1247      jsr             InvalBullet                                 ;Inval old bullet location
+00001DAC  4EB9 00001E1A           1248      jsr             CheckPlayerBulletCollision                  ;Check for collisions
+00001DB2                          1249      
+00001DB2  3010                    1250      move.w          (a0),d0                                     ;Get current X position
+00001DB4  E848                    1251      lsr             #FRAC_BITS,d0
+00001DB6  B07C 0280               1252      cmp.w           #SCREEN_WIDTH,d0
+00001DBA  6C00 0032               1253      bge             ClearBullet                                 ;Remove bullet if off screen right
+00001DBE                          1254          
+00001DBE                          1255  MoveBullet:
+00001DBE  7001                    1256      move.l          #1,d0                                       ;Set parameters for drawing the bullet
+00001DC0  7201                    1257      move.l          #1,d1                                       ;Image X,Y
+00001DC2  0650 00C8               1258      add.w           #BULLET_SPEED,(a0)                          ;Update X position + speed
+00001DC6  7404                    1259      move.l          #BULLET_WIDTH,d2                            ;Image width,height
+00001DC8  7604                    1260      move.l          #BULLET_HEIGHT,d3
+00001DCA  3810                    1261      move.w          (a0),d4                                     ;Screen X,Y
+00001DCC  E84C                    1262      lsr             #FRAC_BITS,d4
+00001DCE  3A28 0002               1263      move.w          2(a0),d5
+00001DD2  E84D                    1264      lsr             #FRAC_BITS,d5
+00001DD4  2248                    1265      move.l          a0,a1
+00001DD6  41F9 00001EBE           1266      lea             BulletImg,a0                                ;Bullet image
+00001DDC  4EB8 15A6               1267      jsr             InitImage                                   ;Draw the bullet
+00001DE0  2049                    1268      move.l          a1,a0
+00001DE2                          1269      
+00001DE2  5888                    1270      add.l           #4,a0                                       ;Move to the next bullet
+00001DE4                          1271      
+00001DE4  51CF FFBC               1272      dbra            d7,UpdateBulletsInner                       ;Loop
+00001DE8                          1273      
+00001DE8  4CDF 7FFF               1274      movem.l         (a7)+,ALL_REG                               ;Restore stack
+00001DEC  4E75                    1275      rts
+00001DEE                          1276      
+00001DEE                          1277      
+00001DEE                          1278  ClearBullet:
+00001DEE  2C07                    1279      move.l          d7,d6                                       ;Get current position in array
+00001DF0  2248                    1280      move.l          a0,a1                                       ;Get bullet array
+00001DF2                          1281      
+00001DF2                          1282  ShiftPlayerBulletArray:
+00001DF2  20E8 0004               1283      move.l          4(a0),(a0)+                                 ;Move contents of next bullet to current
+00001DF6  51CE FFFA               1284      dbra            d6,ShiftPlayerBulletArray                   ;Do this until the end of the array
+00001DFA                          1285      
+00001DFA  217C FFFFFFFF FFFC      1286      move.l          #$FFFFFFFF,-4(a0)                           ;Set last element to -1
+00001E02  5379 00001F94           1287      sub.w           #1,NumLivePlayerBullets                     ;Set counters to one less active bullet
+00001E08  5279 00001F96           1288      add.w           #1,NumDeadPlayerBullets
+00001E0E  2049                    1289      move.l          a1,a0
+00001E10  51CF FF90               1290      dbra            d7,UpdateBulletsInner                       ;Loop back into moving bullets
+00001E14                          1291  
+00001E14                          1292  EndUpdateBullets:  
+00001E14  4CDF 7FFF               1293      movem.l         (a7)+,ALL_REG                               ;Restore stack
+00001E18  4E75                    1294      rts
+00001E1A                          1295      
+00001E1A                          1296      
+00001E1A                          1297  CheckPlayerBulletCollision:
+00001E1A  48E7 FFFE               1298      movem.l         ALL_REG,-(a7)                               ;Push registers to stack
+00001E1E  4287                    1299      clr.l           d7
+00001E20  3E38 1D14               1300      move.w          NumActiveEnemies,d7                         ;Set up loop through enemies
+00001E24  5347                    1301      sub.w           #1,d7
+00001E26  43F8 1CEC               1302      lea             EnemyPosArray,a1
+00001E2A                          1303      
+00001E2A                          1304  CheckPlayerBulletCollisionInner:
+00001E2A  4280                    1305      clr.l           d0                                          ;Check all four sides of bullet against all four sides of current enemy
+00001E2C  3010                    1306      move.w          (a0),d0                                     ;Get current X
+00001E2E  4281                    1307      clr.l           d1
+00001E30  3211                    1308      move.w          (a1),d1                                     ;Get current enemy X
+00001E32  0640 0040               1309      add.w           #BULLET_WIDTH<<FRAC_BITS,d0                 ;Compare right side of bullet with left side of enemy
+00001E36  B240                    1310      cmp.w           d0,d1
+00001E38  6E00 0060               1311      bgt             CheckPlayerBulletCollisionEnd               ;If to the left of enemy, skip
+00001E3C                          1312      
+00001E3C  0440 0040               1313      sub.w           #BULLET_WIDTH<<FRAC_BITS,d0                 ;Compare left side of bullet with right side of enemy
+00001E40  0641 0100               1314      add.w           #ENEMY_WIDTH<<FRAC_BITS,d1
+00001E44  B240                    1315      cmp.w           d0,d1
+00001E46  6D00 0052               1316      blt             CheckPlayerBulletCollisionEnd               ;If past enemy, skip
+00001E4A                          1317      
+00001E4A  3028 0002               1318      move.w          2(a0),d0                                    ;Get current Y
+00001E4E  3229 0002               1319      move.w          2(a1),d1                                    ;Get current enemy Y
+00001E52  0640 0040               1320      add.w           #BULLET_HEIGHT<<FRAC_BITS,d0                ;Check bottom of bullet with top of enemy
+00001E56  B240                    1321      cmp.w           d0,d1
+00001E58  6E00 0040               1322      bgt             CheckPlayerBulletCollisionEnd               ;If above, skip
+00001E5C                          1323      
+00001E5C  0440 0040               1324      sub.w           #BULLET_HEIGHT<<FRAC_BITS,d0                ;Check top of bullet with bottom of enemy
+00001E60  0641 0110               1325      add.w           #ENEMY_HEIGHT<<FRAC_BITS,d1
+00001E64  B240                    1326      cmp.w           d0,d1
+00001E66  6D00 0032               1327      blt             CheckPlayerBulletCollisionEnd               ;If below, skip
+00001E6A                          1328      
+00001E6A  303C 0280               1329      move.w          #SCREEN_WIDTH,d0                            ;We have a collision!
+00001E6E  5840                    1330      add.w           #BULLET_WIDTH,d0                            ;Move the bullet to the right of the screen, the next frame it will be killed by update
+00001E70  E948                    1331      lsl             #FRAC_BITS,d0
+00001E72  3080                    1332      move.w          d0,(a0)
+00001E74                          1333      
+00001E74  3211                    1334      move.w          (a1),d1                                     ;Get the current position, width, and height of the enemy we collided with
+00001E76  E849                    1335      lsr             #FRAC_BITS,d1
+00001E78  3429 0002               1336      move.w          2(a1),d2
+00001E7C  E84A                    1337      lsr             #FRAC_BITS,d2
+00001E7E  7610                    1338      move.l          #ENEMY_WIDTH,d3
+00001E80  7811                    1339      move.l          #ENEMY_HEIGHT,d4
+00001E82  D681                    1340      add.l           d1,d3
+00001E84  D882                    1341      add.l           d2,d4
+00001E86                          1342      
+00001E86  4EB8 1240               1343      jsr             InvalArea                                   ;Clear the old image from the screen
+00001E8A  203C 00000020           1344      move.l          #ENEMY_VALUE,d0                             ;Add score for the kill
+00001E90  4EB9 00002712           1345      jsr             AddScore
+00001E96                          1346      
+00001E96  32BC F000               1347      move.w          #$F000,(a1)                                 ;Move the enemy to the left of the screen, it will be cleaned up next frame
+00001E9A                          1348      
+00001E9A                          1349  CheckPlayerBulletCollisionEnd:
+00001E9A  5849                    1350      add.w           #4,a1                                       ;Go to next bullet object
+00001E9C  51CF FF8C               1351      dbra            d7,CheckPlayerBulletCollisionInner          ;And loop
+00001EA0                          1352      
+00001EA0  4CDF 7FFF               1353      movem.l         (a7)+,ALL_REG                               ;Restore stack
+00001EA4  4E75                    1354      rts
+00001EA6                          1355      
+00001EA6                          1356  InvalBullet:
+00001EA6  3210                    1357      move.w          (a0),d1                                     ;Clear the old bullet pixels
+00001EA8  E849                    1358      lsr             #FRAC_BITS,d1                               ;Get X,Y, width, height
+00001EAA  3428 0002               1359      move.w          2(a0),d2
+00001EAE  E84A                    1360      lsr             #FRAC_BITS,d2
+00001EB0  7604                    1361      move.l          #BULLET_WIDTH,d3
+00001EB2  7804                    1362      move.l          #BULLET_HEIGHT,d4
+00001EB4  D681                    1363      add.l           d1,d3
+00001EB6  D882                    1364      add.l           d2,d4
+00001EB8                          1365      
+00001EB8  4EB8 1240               1366      jsr             InvalArea                                   ;Clear the area
+00001EBC  4E75                    1367      rts
+00001EBE                          1368  
+00001EBE                          1369  
+00001EBE                          1370  
+00001EBE                          1371  BulletImg               incbin  'Bullet.bmp'                    ;The bullet sprite
+00001F6C                          1372  PlayerBullets           ds.w    MAX_PLAYER_BULLETS*2            ;The array of player bullets
+00001F94= 0000                    1373  NumLivePlayerBullets    dc.w    0                               ;Counters for bullet states
+00001F96= 000A                    1374  NumDeadPlayerBullets    dc.w    MAX_PLAYER_BULLETS
+00001F98= 0000                    1375  PlayerFireTimer         dc.w    0                               ;Timer for debouncing if fire key is held
+00001F9A                          1376  
+00001F9A                          1377  
+00001F9A                          1378  
+00001F9A                          1379  
+00001F9A                          1380  
+00001F9A                          1381  
+00001F9A                          1382  
+00001F9A                          1383  -------------------- end include --------------------
+00001F9A                          1384      include 'StarBG.X68'
+00001F9A  =000000C8               1385  NUM_SMALL_STARS     EQU 200                             ;Number of small stars to create
+00001F9A  =00000064               1386  NUM_LARGE_STARS     EQU 100                             ;Number of larger stars to create
+00001F9A  =00FFFFFF               1387  STAR_COLOR          EQU $00FFFFFF                       ;Color to use for stars
+00001F9A  =00000000               1388  SPACE_COLOR         EQU $00000000                       ;Color to use for space
+00001F9A  =00000001               1389  PARALLAX_AMOUNT     EQU 1                               ;Ratio of parallax scrolling to use
+00001F9A  =00000001               1390  OFFSET_PER_FRAME    EQU 1                               ;Amount to move stars by per frame
+00001F9A                          1391  
+00001F9A  =00000001               1392  STAR_SIZE_SMALL     EQU 1                               ;Radius in pixels of small stars
+00001F9A  =00000002               1393  STAR_SIZE_LARGE     EQU 2                               ;Radius of larger stars
+00001F9A                          1394  
+00001F9A  =00000058               1395  DRAW_CIRCLE_TASK    EQU 88                              ;Trap codes for Sim68K hardware simulation
+00001F9A  =00000051               1396  SET_FILL_TASK       EQU 81
+00001F9A  =00000050               1397  SET_PEN_TASK        EQU 80
+00001F9A  =00000021               1398  GET_RES_TASK        EQU 33
+00001F9A                          1399      
+00001F9A                          1400      
+00001F9A                          1401  InitStars:
+00001F9A  223C 00FFFFFF           1402      move.l          #STAR_COLOR,d1                      ;Set outline and fill colors
+00001FA0  7050                    1403      move.l          #SET_PEN_TASK,d0
+00001FA2  4E4F                    1404      trap            #15
+00001FA4                          1405      
+00001FA4  7051                    1406      move.l          #SET_FILL_TASK,d0
+00001FA6  4E4F                    1407      trap            #15
+00001FA8                          1408  
+00001FA8  2E3C 000000C8           1409      move.l          #NUM_SMALL_STARS,d7                 ;Set parameters for loop to initialize small star field
+00001FAE  5387                    1410      sub.l           #1,d7                               ;Set loop counter
+00001FB0  41F9 00002138           1411      lea             StarArraySmallX,a0                  ;Get array addresses
+00001FB6  43F9 000022C8           1412      lea             StarArraySmallY,a1
+00001FBC  4281                    1413      clr.l           d1
+00001FBE  33FC 0001 000025E8      1414      move.w          #STAR_SIZE_SMALL,CurrentSize        ;Set current star size to small
+00001FC6  4EB9 00001FEE           1415      jsr             InitStarsLoop                       ;Initialize small stars
+00001FCC                          1416      
+00001FCC  7E64                    1417      move.l          #NUM_LARGE_STARS,d7                 ;Repeat this step for initialization of large stars
+00001FCE  5387                    1418      sub.l           #1,d7
+00001FD0  41F9 00002458           1419      lea             StarArrayLargeX,a0
+00001FD6  43F9 00002520           1420      lea             StarArrayLargeY,a1
+00001FDC  4281                    1421      clr.l           d1
+00001FDE  33FC 0002 000025E8      1422      move.w          #STAR_SIZE_LARGE,CurrentSize
+00001FE6  4EB9 00001FEE           1423      jsr             InitStarsLoop
+00001FEC  4E75                    1424      rts                                                 
+00001FEE                          1425  
+00001FEE                          1426  InitStarsLoop:
+00001FEE  4EB8 1750               1427      jsr             GetRandomByteIntoD6                 ;Get a random word by getting two random bytes
+00001FF2  E14E                    1428      lsl             #8,d6
+00001FF4  3A06                    1429      move.w          d6,d5
+00001FF6  4EB8 1750               1430      jsr             GetRandomByteIntoD6
+00001FFA  DC45                    1431      add.w           d5,d6
+00001FFC  303C 0280               1432      move.w          #SCREEN_WIDTH,d0                    ;Mod with Screen width to get random X coordinate
+00002000  8CC0                    1433      divu            d0,d6
+00002002  4846                    1434      swap            d6                                  
+00002004                          1435      
+00002004  3206                    1436      move.w          d6,d1                               ;Save the X coordinate
+00002006  30C1                    1437      move.w          d1,(a0)+
+00002008  2601                    1438      move.l          d1,d3
+0000200A  D679 000025E8           1439      add.w           CurrentSize,d3                      ;Add the width to get the X coordinates for drawing
+00002010                          1440      
+00002010  4EB8 1750               1441      jsr             GetRandomByteIntoD6                 ;Get a random for Y coordinate
+00002014  E14E                    1442      lsl             #8,d6
+00002016  3A06                    1443      move.w          d6,d5
+00002018  4EB8 1750               1444      jsr             GetRandomByteIntoD6
+0000201C  DC45                    1445      add.w           d5,d6
+0000201E  303C 01E0               1446      move.w          #SCREEN_HEIGHT,d0                   ;Get the screen height
+00002022  0440 0040               1447      sub.w           #GROUND_HEIGHT,d0                   ;Adjust to fit in field of play
+00002026  0440 0040               1448      sub.w           #HEADER_HEIGHT,d0
+0000202A  9079 000025E8           1449      sub.w           CurrentSize,d0
+00002030  9079 000025E8           1450      sub.w           CurrentSize,d0
+00002036  8CC0                    1451      divu            d0,d6                               ;Mod with size to get random Y coordinate
+00002038  4846                    1452      swap            d6
+0000203A                          1453      
+0000203A  3406                    1454      move.w          d6,d2                               ;Store for drawing
+0000203C  0642 0040               1455      add.w           #HEADER_HEIGHT,d2                   ;Offset to keep within field of play
+00002040  D479 000025E8           1456      add.w           CurrentSize,d2
+00002046  32C2                    1457      move.w          d2,(a1)+                            ;Save the Y coordinate
+00002048  2802                    1458      move.l          d2,d4
+0000204A  D879 000025E8           1459      add.w           CurrentSize,d4                      ;Add star height to get Y coordinates for drawing
+00002050                          1460      
+00002050  7058                    1461      move.l          #DRAW_CIRCLE_TASK,d0                ;Draw the star!
+00002052  4E4F                    1462      trap            #15
+00002054                          1463      
+00002054  51CF FF98               1464      dbra            d7,InitStarsLoop                    ;Loop until all stars have been created
+00002058  4E75                    1465      rts
+0000205A                          1466      
+0000205A                          1467      
+0000205A                          1468  UpdateStars:
+0000205A  48E7 FFFE               1469      movem.l         ALL_REG,-(a7)                       ;Push registers to stack
+0000205E  33FC 0001 000025EA      1470      move.w          #OFFSET_PER_FRAME,BackgroundOffset  ;Set speed to move stars
+00002066  4EB9 00002080           1471      jsr             UpdateSmallStars                    ;Move and draw small stars
+0000206C  4EB9 000020A8           1472      jsr             UpdateLargeStars                    ;Move and draw large stars
+00002072  33FC 0000 000025EA      1473      move.w          #0,BackgroundOffset                 ;Reset speed
+0000207A  4CDF 7FFF               1474      movem.l         (a7)+,ALL_REG                       ;Restore stack
+0000207E  4E75                    1475      rts
+00002080                          1476      
+00002080                          1477  UpdateSmallStars:
+00002080  2E3C 000000C8           1478      move.l          #NUM_SMALL_STARS,d7                 ;Set index for loop
+00002086  5387                    1479      sub.l           #1,d7
+00002088  41F9 00002138           1480      lea             StarArraySmallX,a0                  ;Get X,Y coordinates
+0000208E  43F9 000022C8           1481      lea             StarArraySmallY,a1
+00002094  33FC 0001 000025E8      1482      move.w          #STAR_SIZE_SMALL,CurrentSize        ;Set size for Inval and drawing
+0000209C                          1483      
+0000209C  4281                    1484      clr.l           d1
+0000209E  4282                    1485      clr.l           d2
+000020A0                          1486      
+000020A0  4EB9 000020DA           1487      jsr             UpdateStarLoop                      ;Update the stars
+000020A6  4E75                    1488      rts
+000020A8                          1489      
+000020A8                          1490  UpdateLargeStars:
+000020A8  7E64                    1491      move.l          #NUM_LARGE_STARS,d7                 ;Set index for loop
+000020AA  5387                    1492      sub.l           #1,d7
+000020AC  41F9 00002458           1493      lea             StarArrayLargeX,a0                  ;Get X,Y coordinates
+000020B2  43F9 00002520           1494      lea             StarArrayLargeY,a1
+000020B8  33FC 0002 000025E8      1495      move.w          #STAR_SIZE_LARGE,CurrentSize        ;Set size for Inval and drawing
+000020C0  3039 000025EA           1496      move.w          BackgroundOffset,d0                 ;Set speed
+000020C6  E348                    1497      lsl             #PARALLAX_AMOUNT,d0
+000020C8  33C0 000025EA           1498      move.w          d0,BackgroundOffset                 ;Save the current speed
+000020CE                          1499      
+000020CE  4281                    1500      clr.l           d1
+000020D0  4282                    1501      clr.l           d2
+000020D2                          1502      
+000020D2  4EB9 000020DA           1503      jsr             UpdateStarLoop                      ;Do the update
+000020D8  4E75                    1504      rts
+000020DA                          1505     
+000020DA                          1506      
+000020DA                          1507  UpdateStarLoop:
+000020DA  7200                    1508      move.l          #SPACE_COLOR,d1                     ;Set pen and fill to black for space
+000020DC  7050                    1509      move.l          #SET_PEN_TASK,d0
+000020DE  4E4F                    1510      trap            #15
+000020E0  7051                    1511      move.l          #SET_FILL_TASK,d0
+000020E2  4E4F                    1512      trap            #15
+000020E4                          1513      
+000020E4  3210                    1514      move.w          (a0),d1                             ;Get the starting X coordinate
+000020E6  2601                    1515      move.l          d1,d3
+000020E8  D679 000025E8           1516      add.w           CurrentSize,d3                      ;Get ending X
+000020EE                          1517          
+000020EE  3411                    1518      move.w          (a1),d2                             ;Get starting Y
+000020F0  2802                    1519      move.l          d2,d4
+000020F2  D879 000025E8           1520      add.w           CurrentSize,d4                      ;Get ending Y
+000020F8                          1521      
+000020F8  7058                    1522      move.l          #DRAW_CIRCLE_TASK,d0                ;Inval the old star position
+000020FA  4E4F                    1523      trap            #15
+000020FC                          1524      
+000020FC  3039 000025EA           1525      move.w          BackgroundOffset,d0                 ;Update the X position of this star with the speed
+00002102  9150                    1526      sub.w           d0,(a0)
+00002104  6E00 0006               1527      bgt             DrawStar                            ;Draw it in its new location
+00002108                          1528      
+00002108  30BC 0280               1529      move.w          #SCREEN_WIDTH,(a0)                  ;If the star moved all the way left of the screen, move it to the right side
+0000210C                          1530      
+0000210C                          1531  DrawStar:
+0000210C  223C 00FFFFFF           1532      move.l          #STAR_COLOR,d1                      ;Set pen and fill color to white for stars
+00002112  7050                    1533      move.l          #SET_PEN_TASK,d0
+00002114  4E4F                    1534      trap            #15
+00002116  7051                    1535      move.l          #SET_FILL_TASK,d0
+00002118  4E4F                    1536      trap            #15
+0000211A                          1537      
+0000211A  3218                    1538      move.w          (a0)+,d1                            ;Get the starting X and move to next X
+0000211C  2601                    1539      move.l          d1,d3
+0000211E  D679 000025E8           1540      add.w           CurrentSize,d3                      ;Get ending X
+00002124  3419                    1541      move.w          (a1)+,d2                            ;Get starting Y and move to next Y
+00002126  2802                    1542      move.l          d2,d4
+00002128  D879 000025E8           1543      add.w           CurrentSize,d4                      ;Get ending Y
+0000212E                          1544      
+0000212E  7058                    1545      move.l          #DRAW_CIRCLE_TASK,d0                ;Draw the star
+00002130  4E4F                    1546      trap            #15
+00002132                          1547  
+00002132  51CF FFA6               1548      dbra            d7,UpdateStarLoop                   ;Loop to next star
+00002136  4E75                    1549      rts
+00002138                          1550  
+00002138                          1551  
+00002138                          1552  
+00002138                          1553  StarArraySmallX     ds.w    NUM_SMALL_STARS             ;X coordinates of all small stars
+000022C8                          1554  StarArraySmallY     ds.w    NUM_SMALL_STARS             ;Y coordinates of small stars
+00002458                          1555  StarArrayLargeX     ds.w    NUM_LARGE_STARS             ;Xs of large stars
+00002520                          1556  StarArrayLargeY     ds.w    NUM_LARGE_STARS             ;Ys of large stars
+000025E8= 0000                    1557  CurrentSize         dc.w    0                           ;Size used for calculations in display
+000025EA                          1558  
+000025EA= 0000                    1559  BackgroundOffset    dc.w    0                           ;Speed of background for movement
+000025EC                          1560  
+000025EC                          1561  
+000025EC                          1562  
+000025EC                          1563  -------------------- end include --------------------
+000025EC                          1564      include '7Segment.X68'
+000025EC  =0000000A               1565  SEGMENT_LENGTH          EQU     10                                                  ;The length of each segment
+000025EC  =00000005               1566  SEGMENT_WIDTH           EQU     5                                                   ;The width of each segment
+000025EC  =00FFFFFF               1567  SEGMENT_COLOR           EQU     $00FFFFFF                                           ;The color to draw each segment
+000025EC  =00000005               1568  DIGIT_PADDING           EQU     5                                                   ;How many pixels to leave between each digit
+000025EC                          1569  
+000025EC  =00000011               1570  SCORE_SCREEN_POSY       EQU     (HEADER_HEIGHT-(SEGMENT_LENGTH+SEGMENT_WIDTH)*2)/2  ;Center the display vertically in the header
+000025EC  =00000011               1571  SCORE_SCREEN_OFFSETX    EQU     SCORE_SCREEN_POSY                                   ;Use the same offset horizontally
+000025EC  =00000274               1572  SCORE_SCREEN_POSX       EQU     SCREEN_WIDTH-SCORE_SCREEN_OFFSETX+SEGMENT_WIDTH     ;Align right
+000025EC                          1573  
+000025EC                          1574  
+000025EC                          1575  DrawLED:
+000025EC  48E7 FFFE               1576      movem.l         ALL_REG,-(a7)                                   ;Push registers to stack
+000025F0                          1577      
+000025F0  41F9 000026A8           1578      lea             SegmentMaskArray,a0                             ;Load our array of masks
+000025F6  4285                    1579      clr.l           d5
+000025F8  1A30 0000               1580      move.b          (a0,d0),d5                                      ;Get the mask of our current number
+000025FC  2C05                    1581      move.l          d5,d6
+000025FE                          1582      
+000025FE  43F9 000026B2           1583      lea             SegmentStartXArray,a1                           ;Get coordinate arrays
+00002604  45F9 000026B9           1584      lea             SegmentEndXArray,a2
+0000260A  47F9 000026C0           1585      lea             SegmentStartYArray,a3
+00002610  49F9 000026C7           1586      lea             SegmentEndYArray,a4
+00002616                          1587      
+00002616  203C 00000274           1588      move.l          #SCORE_SCREEN_POSX,d0                           ;Set location on screen
+0000261C  3439 0000278A           1589      move.w          SignificantDigits,d2                            ;Offset to the left based on which digit we are displaying
+00002622  9447                    1590      sub.w           d7,d2
+00002624  C4FC 0014               1591      mulu            #SEGMENT_LENGTH+SEGMENT_WIDTH+DIGIT_PADDING,d2  ;By the width of each full display + the padding between
+00002628  9082                    1592      sub.l           d2,d0
+0000262A  7410                    1593      move.l          #SEGMENT_LENGTH+SEGMENT_WIDTH+1,d2              ;Get the full width of the number
+0000262C  7211                    1594      move.l          #SCORE_SCREEN_POSY,d1                           ;Get the Y location
+0000262E                          1595      
+0000262E  761F                    1596      move.l          #SEGMENT_LENGTH*2+SEGMENT_WIDTH*2+1,d3          ;Get the full height of the number
+00002630  2800                    1597      move.l          d0,d4                                           ;Get screen X,Y location
+00002632  2A01                    1598      move.l          d1,d5
+00002634                          1599      
+00002634  41F9 000170EE           1600      lea             HeaderBackground,a0                             ;Get the address of the background image to inval the old number
+0000263A  4EB8 15A6               1601      jsr             InitImage                                       ;Draw the background image over the old number
+0000263E                          1602      
+0000263E  7050                    1603      move.l          #SET_PEN_TRAP_CODE,d0                           ;Set the color of the LED segments
+00002640  223C 00FFFFFF           1604      move.l          #SEGMENT_COLOR,d1
+00002646  4E4F                    1605      trap            #15    
+00002648  7051                    1606      move.l          #SET_FILL_TRAP_CODE,d0
+0000264A  4E4F                    1607      trap            #15
+0000264C                          1608      
+0000264C  203C 00000274           1609      move.l          #SCORE_SCREEN_POSX,d0                           ;Get the X coordinate on screen of the current digit
+00002652  3439 0000278A           1610      move.w          SignificantDigits,d2                            ;Offset to current digit
+00002658  9447                    1611      sub.w           d7,d2                                           
+0000265A  C4FC 0014               1612      mulu            #SEGMENT_LENGTH+SEGMENT_WIDTH+DIGIT_PADDING,d2  ;Multiply by width of number + padding to position properly
+0000265E  9082                    1613      sub.l           d2,d0
+00002660                          1614      
+00002660  2200                    1615      move.l          d0,d1                                           ;Initialize the ending X coordinate of the segment
+00002662  2601                    1616      move.l          d1,d3
+00002664  7411                    1617      move.l          #SCORE_SCREEN_POSY,d2                           ;Initialize the starting and ending Y coordinates of the segment
+00002666  2802                    1618      move.l          d2,d4
+00002668                          1619      
+00002668  7E06                    1620      move.l          #6,d7                                           ;Use 6 for counter for 7 segments
+0000266A  2A06                    1621      move.l          d6,d5                                           ;Copy our mask
+0000266C  7057                    1622      move.l          #DRAW_SQUARE_TRAP_CODE,d0
+0000266E                          1623      
+0000266E                          1624  DrawSegment:
+0000266E  2C05                    1625      move.l          d5,d6                                           ;Get the last bit of our mask
+00002670  0246 0001               1626      andi            #$01,d6                                         ;If it is set to display, show it!
+00002674  6700 0026               1627      beq             NextBit                                         ;Otherwise, don't
+00002678                          1628      
+00002678  48E7 7C00               1629      movem.l         d1-d5,-(a7)                                     ;Push current registers to stack
+0000267C  4285                    1630      clr.l           d5
+0000267E  1A31 7000               1631      move.b          (a1,d7),d5                                      ;Get start X
+00002682  D245                    1632      add.w           d5,d1
+00002684  1A33 7000               1633      move.b          (a3,d7),d5                                      ;Start Y
+00002688  D445                    1634      add.w           d5,d2
+0000268A  1A32 7000               1635      move.b          (a2,d7),d5                                      ;End X
+0000268E  D645                    1636      add.w           d5,d3
+00002690  1A34 7000               1637      move.b          (a4,d7),d5                                      ;End Y
+00002694  D845                    1638      add.w           d5,d4
+00002696                          1639      
+00002696  4E4F                    1640      trap            #15                                             ;Draw a rectangle for the segment
+00002698  4CDF 003E               1641      movem.l         (a7)+,d1-d5                                     ;Restore the stack
+0000269C                          1642      
+0000269C                          1643  NextBit:    
+0000269C  E28D                    1644      lsr.l           #1,d5                                           ;Shift the mask for next segment bit
+0000269E  51CF FFCE               1645      dbra            d7,DrawSegment                                  ;Loop
+000026A2                          1646      
+000026A2  4CDF 7FFF               1647      movem.l         (a7)+,d0-d7/a0-a6                               ;Restore stack
+000026A6  4E75                    1648      rts
+000026A8                          1649      
+000026A8                          1650  
+000026A8                          1651  
+000026A8= 7E 30 6D 79 33 5B ...   1652  SegmentMaskArray    dc.b    $7E,$30,$6D,$79,$33,$5B,$5F,$70,$7F,$73     ;Each byte is a bit mask for which segments should be active at a given index
+000026B2                          1653  
+000026B2= 00 0A 0A 00 00 00 00    1654  SegmentStartXArray  dc.b    0,SEGMENT_LENGTH,SEGMENT_LENGTH,0,0,0,0     ;Starting X coordinates of each segment
+000026B9                          1655  
+000026B9= 0F                      1656  SegmentEndXArray    dc.b    SEGMENT_LENGTH+SEGMENT_WIDTH                ;Ending X coordinates of each segment
+000026BA= 0F                      1657                      dc.b    SEGMENT_LENGTH+SEGMENT_WIDTH
+000026BB= 0F                      1658                      dc.b    SEGMENT_LENGTH+SEGMENT_WIDTH
+000026BC= 0F                      1659                      dc.b    SEGMENT_LENGTH+SEGMENT_WIDTH
+000026BD= 05                      1660                      dc.b    SEGMENT_WIDTH
+000026BE= 05                      1661                      dc.b    SEGMENT_WIDTH
+000026BF= 0F                      1662                      dc.b    SEGMENT_LENGTH+SEGMENT_WIDTH
+000026C0                          1663  
+000026C0= 00                      1664  SegmentStartYArray  dc.b    0                                           ;Starting Y coordinates of each segment
+000026C1= 00                      1665                      dc.b    0
+000026C2= 0F                      1666                      dc.b    SEGMENT_LENGTH+SEGMENT_WIDTH
+000026C3= 19                      1667                      dc.b    SEGMENT_LENGTH*2+SEGMENT_WIDTH
+000026C4= 0F                      1668                      dc.b    SEGMENT_LENGTH+SEGMENT_WIDTH
+000026C5= 00                      1669                      dc.b    0
+000026C6= 0A                      1670                      dc.b    SEGMENT_LENGTH
+000026C7                          1671                      
+000026C7= 05                      1672  SegmentEndYArray    dc.b    SEGMENT_WIDTH                               ;Ending Y coordinates of each segment
+000026C8= 0F                      1673                      dc.b    SEGMENT_LENGTH+SEGMENT_WIDTH
+000026C9= 1E                      1674                      dc.b    SEGMENT_LENGTH*2+SEGMENT_WIDTH*2
+000026CA= 1E                      1675                      dc.b    SEGMENT_LENGTH*2+SEGMENT_WIDTH*2
+000026CB= 1E                      1676                      dc.b    SEGMENT_LENGTH*2+SEGMENT_WIDTH*2
+000026CC= 0F                      1677                      dc.b    SEGMENT_LENGTH+SEGMENT_WIDTH
+000026CD= 0F                      1678                      dc.b    SEGMENT_LENGTH+SEGMENT_WIDTH
+000026CE                          1679  
+000026CE                          1680  
+000026CE                          1681  
+000026CE                          1682  -------------------- end include --------------------
+000026CE                          1683      include 'Score.X68'
+000026CE  =00000020               1684  ENEMY_VALUE             EQU $20                 ;How much each enemy is worth
+000026CE  =00000001               1685  SURVIVAL_SCORE          EQU $1                  ;How many points you get per survival bonus
+000026CE  =0000000A               1686  SURVIVAL_SCORE_TIMER    EQU 10                  ;How often you get survival points
+000026CE                          1687  
+000026CE                          1688  
+000026CE                          1689  GetScore:
+000026CE  48E7 FFFE               1690      movem.l ALL_REG,-(a7)                       ;Push registers to stack
+000026D2  2039 00002786           1691      move.l  Score,d0                            ;Get the current score
+000026D8  4287                    1692      clr.l   d7
+000026DA                          1693  
+000026DA                          1694  GetSignificantDigits:                           ;Calculate how many significant digits are in current score for looping
+000026DA  B0BC 00000000           1695      cmp.l   #0,d0   
+000026E0  6700 0008               1696      beq     SetSignificantDigits                ;If we've run out of digits, set the counter
+000026E4  5287                    1697      add.l   #1,d7                               ;If not, add 1 to our digits counter
+000026E6  E888                    1698      lsr.l   #4,d0                               ;Shift the score right
+000026E8  60F0                    1699      bra     GetSignificantDigits                ;Until there are no more non 0 digits
+000026EA                          1700      
+000026EA                          1701  SetSignificantDigits:
+000026EA  33C7 0000278A           1702      move.w  d7,SignificantDigits                ;Set our variable to the counter we used
+000026F0                          1703  
+000026F0  6700 0014               1704      beq     NextDigit                           ;If it's 0 digits, don't loop
+000026F4  5347                    1705      sub.w   #1,d7                               ;Set loop counter
+000026F6  2239 00002786           1706      move.l  Score,d1                            ;Load current score
+000026FC                          1707      
+000026FC                          1708  GetCurrentDigit:
+000026FC  2001                    1709      move.l  d1,d0                               ;Get the last digit of the current score
+000026FE  0240 000F               1710      andi    #$0F,d0
+00002702                          1711      
+00002702  4EB8 25EC               1712      jsr     DrawLED                             ;Draw it using the 7 Segment LED
+00002706                          1713      
+00002706                          1714  NextDigit:
+00002706  E889                    1715      lsr.l   #4,d1                               ;Shift our score to the right
+00002708  51CF FFF2               1716      dbra    d7,GetCurrentDigit                  ;Loop again if we have more digits to display
+0000270C                          1717      
+0000270C  4CDF 7FFF               1718      movem.l (a7)+,ALL_REG                       ;Restore the stack
+00002710  4E75                    1719      rts
+00002712                          1720      
+00002712                          1721      
+00002712                          1722  AddScore:
+00002712  48E7 FFFE               1723      movem.l ALL_REG,-(a7)                       ;Push registers to stack
+00002716                          1724      
+00002716  D1B9 00002786           1725      add.l   d0,Score                            ;Add the parameter score to the player score
+0000271C                          1726      
+0000271C  4287                    1727      clr.l   d7
+0000271E  3E39 0000278A           1728      move.w  SignificantDigits,d7                ;Load our significant digit counter for looping
+00002724  5347                    1729      sub.w   #1,d7
+00002726  2239 00002786           1730      move.l  Score,d1                            ;Load player score
+0000272C  4283                    1731      clr.l   d3
+0000272E  7806                    1732      move.l  #$6,d4                              ;Use 6 for 'wrapping' from 0xA to 10
+00002730                          1733     
+00002730                          1734  ScoreInner:
+00002730  2401                    1735      move.l  d1,d2
+00002732  C4BC 0000000F           1736      and.l   #$F,d2                              ;Get our last digit
+00002738  B43C 000A               1737      cmp.b   #$A,d2                              ;Check if it is 0xA or higher
+0000273C  6D00 000A               1738      blt     ShiftDigit                          ;If not, do nothing
+00002740                          1739  
+00002740  D9B9 00002786           1740      add.l   d4,Score                            ;Otherwise add 6 in the current digits place to the player score
+00002746  5C81                    1741      add.l   #6,d1                               ;and the last digit in our loop
+00002748                          1742      
+00002748                          1743  ShiftDigit:    
+00002748  E98C                    1744      lsl.l   #4,d4                               ;Shift the 6 to the most current digit
+0000274A  E889                    1745      lsr.l   #4,d1                               ;Shift the score to check the next digit
+0000274C  51CF FFE2               1746      dbra    d7,ScoreInner                       ;Loop again
+00002750                          1747      
+00002750                          1748  DoAdd:
+00002750  4EB8 26CE               1749      jsr     GetScore                            ;Then display our adjusted score
+00002754                          1750      
+00002754  4CDF 7FFF               1751      movem.l (a7)+,ALL_REG                       ;Restore the stack
+00002758  4E75                    1752      rts
+0000275A                          1753              
+0000275A                          1754      
+0000275A                          1755  AddSurvivalScore:
+0000275A  48E7 FFFE               1756      movem.l ALL_REG,-(a7)                           ;Push registers to stack
+0000275E  4EB8 10E4               1757      jsr     GetTime                                 ;Get the current time
+00002762  2039 0000278C           1758      move.l  SurvivalTimer,d0                        ;Get time since last add
+00002768  0680 0000000A           1759      add.l   #SURVIVAL_SCORE_TIMER,d0                ;add the timer
+0000276E  B081                    1760      cmp.l   d1,d0                       
+00002770  6E00 000E               1761      bgt     AddSurvivalScoreEnd                     ;If it's too early, don't add
+00002774                          1762      
+00002774  23C1 0000278C           1763      move.l  d1,SurvivalTimer                        ;If we can add, reset the timer to the current time
+0000277A  7001                    1764      move.l  #SURVIVAL_SCORE,d0                      ;Add our score
+0000277C  4EB8 2712               1765      jsr     AddScore
+00002780                          1766      
+00002780                          1767  AddSurvivalScoreEnd:
+00002780  4CDF 7FFF               1768      movem.l (a7)+,ALL_REG                           ;Restore stack
+00002784  4E75                    1769      rts
+00002786                          1770      
+00002786                          1771      
+00002786                          1772  
+00002786= 00000000                1773  Score               dc.l    0                   ;Player score
+0000278A= 0000                    1774  SignificantDigits   dc.w    0                   ;Digit counter
+0000278C                          1775  
+0000278C= 00000000                1776  SurvivalTimer       dc.l    0                   ;The last time the player received survival score
+00002790                          1777  
+00002790                          1778  
+00002790                          1779  
+00002790                          1780  
+00002790                          1781  
+00002790                          1782  
+00002790                          1783  -------------------- end include --------------------
+00002790                          1784      include 'HighScore.X68'
+00002790  =00000005               1785  NUM_SCORE_ENTRIES   EQU 5                               ;How many entries we have in the table
+00002790                          1786  
+00002790  =00000003               1787  NAME_LENGTH         EQU 3                               ;How many characters to allow for name entry
+00002790                          1788  
+00002790  =00000020               1789  SPACE_CHAR_ASCII    EQU $20                             ;ASCII value of space
+00002790                          1790  
+00002790  =0000001F               1791  CURSOR_COLUMN       EQU 31                              ;Starting coordinates of text for table
+00002790  =0000000C               1792  CURSOR_ROW          EQU 12
+00002790                          1793  
+00002790  =00000013               1794  CURSOR_INPUT_ROW    EQU CURSOR_ROW+NUM_SCORE_ENTRIES+2  ;Coordinates to place Input for new entry
+00002790  =0000001A               1795  CURSOR_INPUT_COLUMN EQU CURSOR_COLUMN-5
+00002790                          1796  
+00002790  =00000009               1797  NEW_ENTRY_ROW       EQU CURSOR_ROW-3                    ;Coordinates for string to let the player know they made the high score table
+00002790  =0000000A               1798  NEW_ENTRY_ROW2      EQU CURSOR_ROW-2
+00002790  =0000001E               1799  NEW_ENTRY_COLUMN    EQU CURSOR_INPUT_COLUMN+4
+00002790                          1800  
+00002790  =0000000E               1801  PRINT_STRING_TASK   EQU 14                              ;Trap codes for Sim68K hardware simulation
+00002790  =00000006               1802  PRINT_CHAR_TASK     EQU 6
+00002790  =00000005               1803  GET_CHAR_TASK       EQU 5
+00002790  =0000000F               1804  PRINT_NUMBER_TASK   EQU 15
+00002790  =0000000B               1805  SET_CURSOR_TASK     EQU 11
+00002790  =00000033               1806  OPEN_FILE_TASK      EQU 51
+00002790  =00000035               1807  READ_FILE_TASK      EQU 53
+00002790  =00000036               1808  WRITE_FILE_TASK     EQU 54
+00002790  =00000037               1809  POSITION_FILE_TASK  EQU 55
+00002790  =00000032               1810  CLOSE_FILES_TASK    EQU 50
+00002790  =00000007               1811  CHECK_INPUT_TASK    EQU 7
+00002790  =0000000C               1812  KEYBOARD_ECHO_TASK  EQU 12
+00002790                          1813  
+00002790                          1814  
+00002790                          1815  DisplayScores:
+00002790  48E7 FFFE               1816      movem.l ALL_REG,-(a7)                       ;Push registers to stack
+00002794                          1817      
+00002794  700C                    1818      move.l  #KEYBOARD_ECHO_TASK,d0              ;Disable input printing
+00002796  7200                    1819      move.l  #0,d1
+00002798  4E4F                    1820      trap    #15
+0000279A  7005                    1821      move.l  #GET_CHAR_TASK,d0                   ;Clear leftover character from moving in-game
+0000279C  4E4F                    1822      trap    #15
+0000279E  700C                    1823      move.l  #KEYBOARD_ECHO_TASK,d0              ;Re-enable input printing
+000027A0  7201                    1824      move.l  #1,d1
+000027A2  4E4F                    1825      trap    #15
+000027A4                          1826      
+000027A4  7033                    1827      move.l  #OPEN_FILE_TASK,d0                  ;Load the file with the table
+000027A6  43F9 00002970           1828      lea     HighScoreFileName,a1
+000027AC  4E4F                    1829      trap    #15
+000027AE  23C1 00002980           1830      move.l  d1,FileID
+000027B4                          1831      
+000027B4  7035                    1832      move.l  #READ_FILE_TASK,d0                  ;Read the file and store in memory
+000027B6  43F9 00002984           1833      lea     HighScoreFile,a1
+000027BC  7428                    1834      move.l  #NUM_SCORE_ENTRIES*8,d2
+000027BE  4E4F                    1835      trap    #15
+000027C0                          1836      
+000027C0  41F9 00002984           1837      lea     HighScoreFile,a0                    ;Load the address in memory of the file data
+000027C6  2648                    1838      move.l  a0,a3
+000027C8  45F9 000029D4           1839      lea     TableIndexStrings,a2                ;Load array of prefixes for table display i.e. '1. '
+000027CE  4DF9 000029AC           1840      lea     TempScoreFile,a6                    ;Load address of memory to store data for writing the file 
+000027D4  7E04                    1841      move.l  #NUM_SCORE_ENTRIES-1,d7             ;Set loop counter
+000027D6                          1842      
+000027D6                          1843  LoadScore:
+000027D6  2010                    1844      move.l  (a0),d0                             ;Get the current score
+000027D8                          1845      
+000027D8  0C79 0000 000029EA      1846      cmp.w   #0,HaveUsedScore                    ;If we have already input our score this game
+000027E0  6600 001C               1847      bne     UseTableScore                       ;We can't do it again!
+000027E4                          1848      
+000027E4  B0B8 2786               1849      cmp.l   Score,d0                            ;Is the player score higher than this value?
+000027E8  6E00 0014               1850      bgt     UseTableScore                       ;If not, then go ahead and display it!
+000027EC                          1851      
+000027EC  2038 2786               1852      move.l  Score,d0                            ;Since it's a new high score, load the player score
+000027F0  2CC0                    1853      move.l  d0,(a6)+                            ;Write this to the temporary data location for writing to the file later
+000027F2  4EB9 000028BE           1854      jsr     GetPlayerName                       ;Have the player input their name
+000027F8  2CC1                    1855      move.l  d1,(a6)+                            ;Also write this to memory
+000027FA  6000 0012               1856      bra     PrintEntry                          ;Then print this entry
+000027FE                          1857      
+000027FE                          1858  UseTableScore
+000027FE  5888                    1859      add.l   #4,a0                               ;If we're printing the score from the file, increment our address
+00002800                          1860                                                  ;This way we automatically move the old data down when a player gets on the table
+00002800  2CC0                    1861      move.l  d0,(a6)+                            ;Write this to memory so we can save it later
+00002802                          1862      
+00002802  7C03                    1863      move.l  #NAME_LENGTH,d6                     ;Set our loop for displaying the name from the file
+00002804                          1864      
+00002804                          1865  LoadName:
+00002804  E189                    1866      lsl.l   #8,d1                               ;Shift our name value
+00002806  1218                    1867      move.b  (a0)+,d1                            ;And add the next character
+00002808  51CE FFFA               1868      dbra    d6,LoadName                         ;Loop until we're through
+0000280C                          1869      
+0000280C  2CC1                    1870      move.l  d1,(a6)+                            ;Write the name to memory
+0000280E                          1871  
+0000280E                          1872  PrintEntry:                                     ;Display the current entry
+0000280E  2F00                    1873      move.l  d0,-(a7)                            ;Push score to stack
+00002810  2F01                    1874      move.l  d1,-(a7)                            ;Push name to stack
+00002812                          1875      
+00002812  700B                    1876      move.l  #SET_CURSOR_TASK,d0                 ;Set the position to print the entry
+00002814  123C 001F               1877      move.b  #CURSOR_COLUMN,d1                   ;Set X to upper byte of lower word
+00002818  E189                    1878      lsl.l   #8,d1
+0000281A  123C 000C               1879      move.b  #CURSOR_ROW,d1                      ;Set Y to lower byte
+0000281E  D279 000029E8           1880      add.w   CurrentTableIndex,d1                ;Offset Y for current entry
+00002824  4E4F                    1881      trap    #15
+00002826  5279 000029E8           1882      add.w   #1,CurrentTableIndex                ;Increment the index after printing
+0000282C                          1883      
+0000282C                          1884      *Note: Set up loop by byte to load name to fix NAME_LENGTH functionality
+0000282C  221F                    1885      move.l  (a7)+,d1                            ;Pop the name off the stack
+0000282E                          1886      
+0000282E  224A                    1887      move.l  a2,a1                               ;Display the index for the entry
+00002830  588A                    1888      add.l   #4,a2                               ;Increment the index array
+00002832  700E                    1889      move.l  #PRINT_STRING_TASK,d0
+00002834  4E4F                    1890      trap    #15
+00002836                          1891      
+00002836  2001                    1892      move.l  d1,d0                               ;Byte swap the name to print in order by character
+00002838  4EB8 16DA               1893      jsr     ByteSwap
+0000283C  2200                    1894      move.l  d0,d1
+0000283E  7006                    1895      move.l  #PRINT_CHAR_TASK,d0                 ;Print name character by character
+00002840                          1896      *Note: Set up loop here to fix NAME_LENGTH functionality
+00002840  4E4F                    1897      trap    #15
+00002842  E089                    1898      lsr.l   #8,d1
+00002844  4E4F                    1899      trap    #15
+00002846  E089                    1900      lsr.l   #8,d1
+00002848  4E4F                    1901      trap    #15
+0000284A                          1902      
+0000284A  7220                    1903      move.l  #SPACE_CHAR_ASCII,d1                ;Print 3 Spaces after name for formatting
+0000284C  4E4F                    1904      trap    #15
+0000284E  4E4F                    1905      trap    #15
+00002850  4E4F                    1906      trap    #15
+00002852                          1907      
+00002852  2217                    1908      move.l  (a7),d1                             ;Get the score from the stack
+00002854  2001                    1909      move.l  d1,d0
+00002856                          1910      
+00002856  7C07                    1911      move.l  #7,d6                               ;Set loop counter
+00002858                          1912     
+00002858                          1913  CountDigits:
+00002858  2400                    1914      move.l  d0,d2                               ;Copy score
+0000285A  2A06                    1915      move.l  d6,d5                               ;Copy loop counter
+0000285C  5385                    1916      sub.l   #1,d5                               ;Decrement one to loop size-1 times
+0000285E                          1917      
+0000285E                          1918  ShiftNumber:
+0000285E  E88A                    1919      lsr.l   #4,d2                               ;Shift the score all the way right so we only have 1 digit left
+00002860  51CD FFFC               1920      dbra    d5,ShiftNumber
+00002864                          1921      
+00002864  C4BC 0000000F           1922      and.l   #$F,d2                              ;If it's 0, print a space instead of the 0
+0000286A  B43C 0000               1923      cmp.b   #0,d2                               
+0000286E  6600 0006               1924      bne     SetPadding                          ;Once we reach a non-zero digit, we know how many spaces we need
+00002872  51CE FFE4               1925      dbra    d6,CountDigits                      
+00002876                          1926      
+00002876                          1927  SetPadding:
+00002876  7A07                    1928      move.l  #7,d5                               ;Get the full size of the number
+00002878  9A86                    1929      sub.l   d6,d5                               ;Subtract the number of significant digits
+0000287A  6700 000E               1930      beq     PrintScore                          ;If we have no leading 0s, print the entire number
+0000287E  5385                    1931      sub.l   #1,d5                               ;Set a loop for printing spaces
+00002880                          1932      
+00002880                          1933  PrintPadding:
+00002880  7220                    1934      move.l  #SPACE_CHAR_ASCII,d1                ;Print a space for each leading 0
+00002882  7006                    1935      move.l  #PRINT_CHAR_TASK,d0
+00002884  4E4F                    1936      trap    #15
+00002886  51CD FFF8               1937      dbra    d5,PrintPadding
+0000288A                          1938      
+0000288A                          1939  PrintScore:
+0000288A  221F                    1940      move.l  (a7)+,d1                            ;Print score without leading 0s
+0000288C  7410                    1941      move.l  #16,d2
+0000288E  700F                    1942      move.l  #PRINT_NUMBER_TASK,d0
+00002890  4E4F                    1943      trap    #15
+00002892                          1944      
+00002892                          1945  NextScore:
+00002892  51CF FF42               1946      dbra    d7,LoadScore                        ;Loop all the way back to get the next entry and compare with player score
+00002896                          1947      
+00002896                          1948  SaveScores:                                     ;The full table is displayed at this point, so save it
+00002896  43F9 000029AC           1949      lea     TempScoreFile,a1                    ;Get the address to memory location of new data
+0000289C  2239 00002980           1950      move.l  FileID,d1                           ;Get the ID of the file that we stored after opening it
+000028A2  7037                    1951      move.l  #POSITION_FILE_TASK,d0              ;The pointer to the file moves when reading, so set back 0 to write over data
+000028A4  7400                    1952      move.l  #0,d2
+000028A6  4E4F                    1953      trap    #15
+000028A8                          1954      
+000028A8  7428                    1955      move.l  #NUM_SCORE_ENTRIES*8,d2             ;Calculate the number of bytes to write to the file
+000028AA  7036                    1956      move.l  #WRITE_FILE_TASK,d0                 ;Write these bytes to the file to save them for next time
+000028AC  4E4F                    1957      trap    #15
+000028AE                          1958      
+000028AE  7032                    1959      move.l  #CLOSE_FILES_TASK,d0                ;Close all open files
+000028B0  4E4F                    1960      trap    #15                                 ;This is necessary to actually save the written data to the file
+000028B2                          1961    
+000028B2                          1962  WaitingForInput:                                ;After saving the high scores, wait for player input to begin the next game
+000028B2  4EB9 00002934           1963      jsr     AwaitInput                          ;Wait for any key
+000028B8                          1964      
+000028B8                          1965  EndDisplayScores:                               ;We finally made it! All scores displayed and saved!
+000028B8  4CDF 7FFF               1966      movem.l (a7)+,ALL_REG                       ;Restore the stack
+000028BC  4E75                    1967      rts
+000028BE                          1968      
+000028BE                          1969  
+000028BE                          1970      
+000028BE                          1971  GetPlayerName:
+000028BE  2F00                    1972      move.l  d0,-(a7)                            ;Push parameters to stack
+000028C0  48E7 0300               1973      movem.l d6/d7,-(a7) 
+000028C4                          1974      
+000028C4  700B                    1975      move.l  #SET_CURSOR_TASK,d0                 ;Move the cursor to the proper position
+000028C6                          1976      
+000028C6  123C 001E               1977      move.b  #NEW_ENTRY_COLUMN,d1                ;Set to the determined position for the new high score entry string
+000028CA  E189                    1978      lsl.l   #8,d1
+000028CC  123C 0009               1979      move.b  #NEW_ENTRY_ROW,d1
+000028D0  4E4F                    1980      trap    #15
+000028D2                          1981      
+000028D2  43F9 000029EC           1982      lea     InputNameString,a1                  ;Print the new high score string
+000028D8  700E                    1983      move.l  #PRINT_STRING_TASK,d0
+000028DA  4E4F                    1984      trap    #15
+000028DC                          1985  
+000028DC  700B                    1986      move.l  #SET_CURSOR_TASK,d0
+000028DE  123C 001E               1987      move.b  #NEW_ENTRY_COLUMN,d1                ;Set to the position for pt 2
+000028E2  E189                    1988      lsl.l   #8,d1
+000028E4  123C 000A               1989      move.b  #NEW_ENTRY_ROW2,d1
+000028E8  4E4F                    1990      trap    #15
+000028EA                          1991      
+000028EA  43F9 000029FE           1992      lea     InputNameString2,a1
+000028F0  700E                    1993      move.l  #PRINT_STRING_TASK,d0               ;Print part 2 of the string
+000028F2  4E4F                    1994      trap    #15
+000028F4                          1995      
+000028F4  700B                    1996      move.l  #SET_CURSOR_TASK,d0
+000028F6  123C 001F               1997      move.b  #CURSOR_COLUMN,d1                   ;Set to the index position
+000028FA  E189                    1998      lsl.l   #8,d1
+000028FC  123C 000C               1999      move.b  #CURSOR_ROW,d1                      ;And at the proper entry
+00002900  D279 000029E8           2000      add.w   CurrentTableIndex,d1
+00002906  4E4F                    2001      trap    #15
+00002908                          2002      
+00002908  224A                    2003      move.l  a2,a1                               ;Display the current index
+0000290A  700E                    2004      move.l  #PRINT_STRING_TASK,d0
+0000290C  4E4F                    2005      trap    #15
+0000290E                          2006  
+0000290E  4EB8 125C               2007      jsr     PaintScreen                         ;Repaint the screen so we see where we are on the table
+00002912                          2008      
+00002912  4286                    2009      clr.l   d6
+00002914                          2010      
+00002914  7005                    2011      move.l  #GET_CHAR_TASK,d0                   ;Get ready for player input
+00002916  7E02                    2012      move.l  #NAME_LENGTH-1,d7                   ;Set loop index
+00002918                          2013      
+00002918                          2014  GetPlayerNameInner:
+00002918  4E4F                    2015      trap    #15                                 ;Get input
+0000291A  1C01                    2016      move.b  d1,d6                               ;Store character input
+0000291C                          2017      
+0000291C  E18E                    2018      lsl.l   #8,d6                               ;Shift to make room
+0000291E  51CF FFF8               2019      dbra    d7,GetPlayerNameInner               ;Loop for next character
+00002922                          2020      
+00002922  2206                    2021      move.l  d6,d1                               ;Copy name to proper register for saving
+00002924                          2022      
+00002924  33FC 0001 000029EA      2023      move.w  #1,HaveUsedScore                    ;Set variable to show that we have already input the new player high score
+0000292C  4CDF 00C0               2024      movem.l (a7)+,d6/d7                         ;Restore stack
+00002930  201F                    2025      move.l  (a7)+,d0
+00002932  4E75                    2026      rts
+00002934                          2027      
+00002934                          2028  
+00002934                          2029  
+00002934                          2030  AwaitInput:
+00002934  48E7 FFFE               2031      movem.l ALL_REG,-(a7)                       ;Push registers to stack
+00002938  700B                    2032      move.l  #SET_CURSOR_TASK,d0                 ;Display a message to let the player know we are waiting on them
+0000293A  123C 001A               2033      move.b  #CURSOR_INPUT_COLUMN,d1             ;Print the message in the proper location
+0000293E  E189                    2034      lsl.l   #8,d1
+00002940  123C 0013               2035      move.b  #CURSOR_INPUT_ROW,d1
+00002944  4E4F                    2036      trap    #15
+00002946                          2037  
+00002946  700E                    2038      move.l  #PRINT_STRING_TASK,d0               ;Display the message
+00002948  43F9 00002A12           2039      lea     WaitInputString,a1
+0000294E  4E4F                    2040      trap    #15
+00002950                          2041      
+00002950  4EB8 125C               2042      jsr     PaintScreen                         ;Update the screen so the player can see the message
+00002954                          2043      
+00002954                          2044  AwaitInputInner:
+00002954  7007                    2045      move.l  #CHECK_INPUT_TASK,d0                ;Check for player input
+00002956  4E4F                    2046      trap    #15
+00002958                          2047      
+00002958  B23C 0001               2048      cmp.b   #1,d1                               ;If there was any key pressed
+0000295C  6700 0004               2049      beq     EndAwaitInput                       ;Move on!
+00002960  60F2                    2050      bra     AwaitInputInner                     ;Otherwise, keep waiting
+00002962                          2051      
+00002962                          2052  EndAwaitInput:
+00002962  13FC 0001 00182D54      2053      move.b  #1,IsPlaying                        ;We're playing again!
+0000296A  4CDF 7FFF               2054      movem.l (a7)+,ALL_REG                       ;Restore stack
+0000296E  4E75                    2055      rts
+00002970                          2056  
+00002970                          2057  
+00002970                          2058  
+00002970= 48 69 67 68 53 63 ...   2059  HighScoreFileName   dc.b    'HighScores.dat',0,0                ;Name of high score file
+00002980= 00000000                2060  FileID              dc.l    0                                   ;ID of file, gotten after opening
+00002984                          2061      
+00002984                          2062  HighScoreFile       ds.b    NUM_SCORE_ENTRIES*8                 ;Location in memory of file contents
+000029AC                          2063  TempScoreFile       ds.b    NUM_SCORE_ENTRIES*8                 ;Location in memory of file contents to write
+000029D4                          2064  
+000029D4= 31 2E 20 00             2065  TableIndexStrings   dc.b    '1. ',0                             ;Strings to output indices for table entries
+000029D8= 32 2E 20 00             2066                      dc.b    '2. ',0
+000029DC= 33 2E 20 00             2067                      dc.b    '3. ',0
+000029E0= 34 2E 20 00             2068                      dc.b    '4. ',0
+000029E4= 35 2E 20 00             2069                      dc.b    '5. ',0
+000029E8                          2070                      
+000029E8= 0000                    2071  CurrentTableIndex   dc.w    0                                   ;Where we currently are in the table for output
+000029EA= 0000                    2072  HaveUsedScore       dc.w    0                                   ;If we have already gotten player score or not
+000029EC                          2073  
+000029EC= 20 20 4E 65 77 20 ...   2074  InputNameString     dc.b    '  New high score!',0               ;String to tell the player to input their initials for a new high score entry
+000029FE= 45 6E 74 65 72 20 ...   2075  InputNameString2    dc.b    'Enter your initials',0
+00002A12                          2076  
+00002A12= 50 72 65 73 73 20 ...   2077  WaitInputString     dc.b    'Press any key to play again!',0,0  ;The string to tell the player to push something
+00002A30                          2078  
+00002A30                          2079  
+00002A30                          2080  
+00002A30                          2081  
+00002A30                          2082  
+00002A30                          2083  -------------------- end include --------------------
+00002A30                          2084      
+00002A30                          2085      
+00002A30                          2086  
+00002A30                          2087  HighScoreHeader     incbin  'HighScoreHeader.bmp'   ;Bitmaps to display
+000170EE                          2088  HeaderBackground    incbin  'HeaderBackground.bmp'
+00035124                          2089  Background          incbin  'background.bmp'
+0012245A                          2090  PlayerSprite        incbin  'player.bmp'
+00125118                          2091  Title               incbin  'Title.bmp'
+00182D50                          2092  
+00182D50= 00000000                2093  FrameTimer          dc.l    0                       ;Frame timer for framerate calculations
+00182D54                          2094  
+00182D54= 02                      2095  IsPlaying           dc.b    2                       ;Game state variable
+00182D55                          2096  
+00182D55                          2097      END    START                                    ;Last line of source
+
+No errors detected
+No warnings generated
+
+
+SYMBOL TABLE INFORMATION
+Symbol-name         Value
+-------------------------
+ADDDOWN             143E
+ADDLEFT             1472
+ADDRIGHT            141A
+ADDSCORE            2712
+ADDSURVIVALSCORE    275A
+ADDSURVIVALSCOREEND  2780
+ADDUP               148E
+ADDXSPEED           156E
+ADDYSPEED           1594
+ALL_REG             7FFF
+ALL_REGISTERS       7FFF
+ANIMPLAYER          1324
+ANIMTIMERRESET      134E
+AWAITINPUT          2934
+AWAITINPUTINNER     2954
+BACKGROUND          35124
+BACKGROUNDOFFSET    25EA
+BEGINGAME           1034
+BITMAP_SIGNATURE    424D
+BULLETIMG           1EBE
+BULLET_HEIGHT       4
+BULLET_SPEED        C8
+BULLET_WIDTH        4
+BYTESPERPIXEL       16F2
+BYTESWAP            16DA
+CALCMOVEMENT        14B0
+CHECKENEMYSPAWN     17C6
+CHECKENEMYSPEEDUP   1958
+CHECKENEMYSPEEDUPEND  197E
+CHECKPLAYERBULLETCOLLISION  1E1A
+CHECKPLAYERBULLETCOLLISIONEND  1E9A
+CHECKPLAYERBULLETCOLLISIONINNER  1E2A
+CHECKPLAYERCOLLISION  135E
+CHECKPLAYERCOLLISIONEND  13C0
+CHECKPLAYERCOLLISIONINNER  1372
+CHECKXMAX           14EA
+CHECKXMIN           14B2
+CHECKYMAX           152C
+CHECKYMIN           1508
+CHECK_INPUT_TASK    7
+CHUNK_HEIGHT        10
+CHUNK_HEIGHT_OFFSET  8
+CHUNK_WIDTH         10
+CHUNK_WIDTH_OFFSET  A
+CLEARBULLET         1DEE
+CLEARPLAYERBACKGROUND  12BE
+CLOSE_FILES_TASK    32
+CORNER_X            104
+CORNER_X_OFFSET     E
+CORNER_Y            FA
+CORNER_Y_OFFSET     C
+COUNTDIGITS         2858
+CURRENTINDEX        1CEA
+CURRENTSIZE         25E8
+CURRENTTABLEINDEX   29E8
+CURRENTXSPEED       15A2
+CURRENTYSPEED       15A4
+CURSOR_COLUMN       1F
+CURSOR_INPUT_COLUMN  1A
+CURSOR_INPUT_ROW    13
+CURSOR_ROW          C
+DEADENEMIES         1D16
+DEPTH_OFFSET        1C
+DIGIT_PADDING       5
+DISPLAYSCORES       2790
+DOADD               2750
+DOFRAMETIMER        10EA
+DRAWBACKGROUND      110C
+DRAWENEMY           18D0
+DRAWGROUND          11CE
+DRAWHEADER          1200
+DRAWHIGHSCOREHEADER  1136
+DRAWIMAGE           15DA
+DRAWING_MODE_DOUBLE_BUFFER  11
+DRAWING_MODE_TRAP_CODE  5C
+DRAWLED             25EC
+DRAWSEGMENT         266E
+DRAWSTAR            210C
+DRAWTITLE           1182
+DRAW_CIRCLE_TASK    58
+DRAW_ELLIPSE_TRAP_CODE  58
+DRAW_SQUARE_TRAP_CODE  57
+END                 10DA
+ENDAWAITINPUT       2962
+ENDCHECKENEMYSPAWN  17EC
+ENDDISPLAYSCORES    28B8
+ENDPLAYERFIRE       1D76
+ENDSHIFT            1932
+ENDUPDATEBULLETS    1E14
+ENEMYDIE            18EC
+ENEMYMOVEEND        1942
+ENEMYPOSARRAY       1CEC
+ENEMYPOSITIVE       1884
+ENEMYSPEEDBONUS     1D1C
+ENEMYSPEEDTIMER     1D18
+ENEMYSPRITE         1984
+ENEMY_HEIGHT        11
+ENEMY_SPAWN_CHANCE  C8
+ENEMY_SPEED         40
+ENEMY_SPEED_FACTOR  2
+ENEMY_SPEED_TIMER   64
+ENEMY_VALUE         20
+ENEMY_WIDTH         10
+FILEID              2980
+FINISH              15D4
+FIRE_KEY            20
+FRAC_BITS           4
+FRAMERATE_TIMER     30
+FRAMETIMER          182D50
+FRAMETIMERINNER     10F6
+GAMEOVER            109E
+GETCURRENTDIGIT     26FC
+GETFIREUP           13F4
+GETINPUT            13D8
+GETMOVEINPUT        140A
+GETPLAYERNAME       28BE
+GETPLAYERNAMEINNER  2918
+GETRANDOMBYTEINTOD6  1750
+GETRANDOMLONGINTOD6  178A
+GETSCORE            26CE
+GETSIGNIFICANTDIGITS  26DA
+GETTIME             10E4
+GET_CHAR_TASK       5
+GET_RES_TASK        21
+GET_TIME_COMMAND    8
+GET_TIME_TRAP_CODE  8
+GROUND_COLOR        2646C6
+GROUND_HEIGHT       40
+HAVEUSEDSCORE       29EA
+HEADERBACKGROUND    170EE
+HEADER_BORDER_COLOR  FFFFFF
+HEADER_BORDER_WIDTH  2
+HEADER_HEIGHT       40
+HEIGHT_OFFSET       16
+HIGHSCOREFILE       2984
+HIGHSCOREFILENAME   2970
+HIGHSCOREHEADER     2A30
+HIGH_SCORE_HEADER_OFFSET  32
+IMGHEIGHT           16EA
+IMGWIDTH            16E6
+INITIMAGE           15A6
+INITSTARS           1F9A
+INITSTARSLOOP       1FEE
+INPUTEND            154C
+INPUTNAMESTRING     29EC
+INPUTNAMESTRING2    29FE
+INVALAREA           1240
+INVALBULLET         1EA6
+ISPLAYING           182D54
+KEYBOARD_ECHO_TASK  C
+KEY_IN_TRAP_CODE    13
+LOADNAME            2804
+LOADSCORE           27D6
+MAIN                104C
+MAX_NUM_ENEMIES     A
+MAX_PLAYER_BULLETS  A
+MOVEBULLET          1DBE
+MOVEENEMIES         184A
+MOVEENEMIESINNER    185C
+MOVEPIXEL           16C8
+MOVEPLAYER          12E8
+NAME_LENGTH         3
+NEW_ENTRY_COLUMN    1E
+NEW_ENTRY_ROW       9
+NEW_ENTRY_ROW2      A
+NEXTBIT             269C
+NEXTDIGIT           2706
+NEXTENEMY           193E
+NEXTSCORE           2892
+NINC0               1766
+NINC1               176E
+NUMACTIVEENEMIES    1D14
+NUMDEADPLAYERBULLETS  1F96
+NUMLIVEPLAYERBULLETS  1F94
+NUM_LARGE_STARS     64
+NUM_SCORE_ENTRIES   5
+NUM_SMALL_STARS     C8
+OFFSET_PER_FRAME    1
+ONE_BYTE            8
+OPEN_FILE_TASK      33
+PAINTSCREEN         125C
+PARALLAX_AMOUNT     1
+PLAYERANIMSTATE     13CC
+PLAYERANIMTIMER     13CD
+PLAYERBULLETS       1F6C
+PLAYERFIRE          1D1E
+PLAYERFIRETIMER     1F98
+PLAYERMOVESTATE     13CE
+PLAYERPOSX          13D0
+PLAYERPOSY          13D2
+PLAYERSCREENX       13D4
+PLAYERSCREENY       13D6
+PLAYERSPRITE        12245A
+PLAYER_ACCELERATION  11
+PLAYER_ANIM_TIMER   4
+PLAYER_FIRE_TIMER   A
+PLAYER_FRICTION     3
+PLAYER_MAX_X        A0
+PLAYER_MAX_Y        18D
+PLAYER_SPRITE_HEIGHT  13
+PLAYER_SPRITE_WIDTH  16
+PLAYER_START_X      19
+PLAYER_START_Y      F0
+POSITION_FILE_TASK  37
+PRINTENTRY          280E
+PRINTPADDING        2880
+PRINTSCORE          288A
+PRINT_CHAR_TASK     6
+PRINT_NUMBER_TASK   F
+PRINT_STRING_TASK   E
+RANDOMVAL           17BE
+READ_FILE_TASK      35
+REPAINT_SCREEN_TRAP_CODE  5E
+RESETGAMEPARAMTERS  1262
+ROWLOOP             16A0
+ROWPADDING          16EE
+ROWPADDINGBYTEOFFSET  16F0
+SAVESCORES          2896
+SCORE               2786
+SCOREINNER          2730
+SCORE_SCREEN_OFFSETX  11
+SCORE_SCREEN_POSX   274
+SCORE_SCREEN_POSY   11
+SCREEN_HEIGHT       1E0
+SCREEN_WIDTH        280
+SCREEN_X            32
+SCREEN_X_OFFSET     6
+SCREEN_Y            32
+SCREEN_Y_OFFSET     4
+SEEDRANDOMNUMBER    1738
+SEGMENTENDXARRAY    26B9
+SEGMENTENDYARRAY    26C7
+SEGMENTMASKARRAY    26A8
+SEGMENTSTARTXARRAY  26B2
+SEGMENTSTARTYARRAY  26C0
+SEGMENT_COLOR       FFFFFF
+SEGMENT_LENGTH      A
+SEGMENT_WIDTH       5
+SETBITS             1926
+SETDRAWMODE         10DE
+SETPADDING          2876
+SETSIGNIFICANTDIGITS  26EA
+SET_CURSOR_TASK     B
+SET_FILL_TASK       51
+SET_FILL_TRAP_CODE  51
+SET_PEN_TASK        50
+SET_PEN_TRAP_CODE   50
+SET_RESOLUTION_TRAP_CODE  21
+SHIFTARRAY          1906
+SHIFTDIGIT          2748
+SHIFTNUMBER         285E
+SHIFTPLAYERBULLETARRAY  1DF2
+SIGNIFICANTDIGITS   278A
+SPACE_CHAR_ASCII    20
+SPACE_COLOR         0
+SPAWNENEMY          17F2
+STARARRAYLARGEX     2458
+STARARRAYLARGEY     2520
+STARARRAYSMALLX     2138
+STARARRAYSMALLY     22C8
+START               1000
+STARTPIXELS         16E2
+START_PIXELS_OFFSET  A
+STAR_COLOR          FFFFFF
+STAR_SIZE_LARGE     2
+STAR_SIZE_SMALL     1
+SUBTRACTFRICTIONX   1568
+SUBTRACTFRICTIONY   158E
+SUPPORTED_DEPTH     18
+SURVIVALTIMER       278C
+SURVIVAL_SCORE      1
+SURVIVAL_SCORE_TIMER  A
+TABLEINDEXSTRINGS   29D4
+TASK_DRAW_PIXEL     52
+TASK_PEN_COLOR      50
+TASK_SET_RES        21
+TEMPRANDOMLONG      17C2
+TEMPSCOREFILE       29AC
+TITLE               125118
+TITLELOOP           100C
+TITLE_OFFSET        64
+UPDATEBULLETS       1D82
+UPDATEBULLETSINNER  1DA2
+UPDATELARGESTARS    20A8
+UPDATESMALLSTARS    2080
+UPDATESTARLOOP      20DA
+UPDATESTARS         205A
+USETABLESCORE       27FE
+WAITINGFORINPUT     28B2
+WAITINPUTSTRING     2A12
+WASD_BITS           57415344
+WIDTH_OFFSET        12
+WRITE_FILE_TASK     36

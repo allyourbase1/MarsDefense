@@ -1,0 +1,42 @@
+00001000 Starting Address
+Assembler used: EASy68K Editor/Assembler v5.16.01
+Created On: 10/5/2018 9:25:34 AM
+
+00000000                             1  *-----------------------------------------------------------
+00000000                             2  * Title      : Score
+00000000                             3  * Written by : Joshua Newell
+00000000                             4  * Date       : 10/5/18
+00000000                             5  * Description:
+00000000                             6  *-----------------------------------------------------------
+00000000                             7  
+00000000                             8  GetDigits:
+00000000  2039 00000018              9      move.l  Score,d0
+00000006  7E08                      10      move.l  #8,d7
+00000008                            11      
+00000008  2200                      12      move.l  d0,d1
+0000000A                            13  
+0000000A                            14  GetSignificantDigits:
+0000000A  EEA9                      15      lsr.l   d7,d1
+0000000C                            16      
+0000000C                            17  GetCurDigit:
+0000000C  1001                      18      move.b  d1,d0
+0000000E  0240 000F                 19      andi    #$0F,d0
+00000012                            20      
+Line 21 ERROR: Undefined symbol
+00000012  4EB9 004DBD16             21      jsr     DrawLED
+00000018                            22  
+00000018                            23  ;Store as decimal
+00000018= 00000000                  24  Score       dc.l    0
+Line 25 WARNING: END directive missing, starting address not set
+
+1 error detected
+1 warning generated
+
+
+SYMBOL TABLE INFORMATION
+Symbol-name         Value
+-------------------------
+GETCURDIGIT         C
+GETDIGITS           0
+GETSIGNIFICANTDIGITS  A
+SCORE               18

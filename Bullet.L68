@@ -1,0 +1,276 @@
+00001000 Starting Address
+Assembler used: EASy68K Editor/Assembler v5.16.01
+Created On: 10/8/2018 9:56:52 AM
+
+00000000                             1  *-----------------------------------------------------------
+00000000                             2  * Title      : Bullet
+00000000                             3  * Written by : Joshua Newell
+00000000                             4  * Date       : 10/1/18
+00000000                             5  * Description: Control bullet movement and collisions
+00000000                             6  *-----------------------------------------------------------
+00000000  =000000C8                  7  BULLET_SPEED            EQU 200                                 ;The speed of the bullets
+00000000  =00000004                  8  BULLET_WIDTH            EQU 4                                   ;Dimensions in pixels of the bullet
+00000000  =00000004                  9  BULLET_HEIGHT           EQU 4
+00000000                            10  ;BULLET_COLOR            EQU $0000FF00                           
+00000000                            11  
+00000000  =00000058                 12  DRAW_ELLIPSE_TRAP_CODE  EQU 88
+00000000                            13  
+00000000  =0000000A                 14  MAX_PLAYER_BULLETS      EQU 10
+00000000  =0000000A                 15  PLAYER_FIRE_TIMER       EQU 10
+00000000                            16  
+00000000                            17  PlayerFire:
+Line 18 ERROR: Undefined symbol
+00000000                            18      movem.l         ALL_REG,-(a7)
+00000000                            19      
+00000000  0C79 000A 00000278        20      cmp.w           #MAX_PLAYER_BULLETS,NumLivePlayerBullets
+00000008  6C00 0056                 21      bge             EndPlayerFire
+0000000C                            22      
+0000000C  0C79 0000 0000027C        23      cmp.w           #0,PlayerFireTimer
+00000014  6E00 004A                 24      bgt             EndPlayerFire
+00000018                            25      
+00000018  41F9 00000250             26      lea             PlayerBullets,a0
+0000001E  3039 00000278             27      move.w          NumLivePlayerBullets,d0
+00000024  E548                      28      lsl             #2,d0
+00000026  D0C0                      29      add.w           d0,a0
+00000028                            30      
+Line 31 ERROR: Undefined symbol
+00000028  203C 004DBD16             31      move.l          #PLAYER_SPRITE_WIDTH,d0
+Line 32 ERROR: Undefined symbol
+0000002E  ED48                      32      lsl             #FRAC_BITS,d0
+Line 33 ERROR: Undefined symbol
+00000030  D079 004DBD16             33      add.w           PlayerPosX,d0
+00000036  3080                      34      move.w          d0,(a0)
+Line 35 ERROR: Undefined symbol
+00000038  203C 004DBD16             35      move.l          #PLAYER_SPRITE_HEIGHT,d0
+0000003E  E248                      36      lsr             #1,d0
+Line 37 ERROR: Undefined symbol
+00000040  ED48                      37      lsl             #FRAC_BITS,d0
+Line 38 ERROR: Undefined symbol
+00000042  D079 004DBD16             38      add.w           PlayerPosY,d0
+00000048  3140 0002                 39      move.w          d0,2(a0)
+0000004C                            40      
+0000004C  5279 00000278             41      add.w           #1,NumLivePlayerBullets
+00000052  5379 0000027A             42      sub.w           #1,NumDeadPlayerBullets
+00000058  33FC 000A 0000027C        43      move.w          #PLAYER_FIRE_TIMER,PlayerFireTimer
+00000060                            44         
+00000060                            45  EndPlayerFire:
+00000060  5379 0000027C             46      sub.w           #1,PlayerFireTimer
+Line 47 ERROR: Undefined symbol
+00000066                            47      movem.l         (a7)+,ALL_REG
+00000066  4E75                      48      rts
+00000068                            49      
+00000068                            50  UpdateBullets:
+Line 51 ERROR: Undefined symbol
+00000068                            51      movem.l         ALL_REG,-(a7)
+00000068  0C79 0000 00000278        52      cmp.w           #0,NumLivePlayerBullets
+00000070  6F00 0082                 53      ble             EndUpdateBullets
+00000074                            54      
+00000074  41F9 00000250             55      lea             PlayerBullets,a0
+0000007A  4287                      56      clr.l           d7
+0000007C  3E39 00000278             57      move.w          NumLivePlayerBullets,d7
+00000082  5347                      58      sub.w           #1,d7
+00000084                            59      
+00000084                            60  UpdateBulletsInner:
+00000084  4281                      61      clr.l           d1
+00000086  4282                      62      clr.l           d2
+00000088                            63      
+00000088  4EB9 00000188             64      jsr             InvalBullet
+0000008E  4EB9 000000F6             65      jsr             CheckPlayerBulletCollision
+00000094                            66      
+00000094  3010                      67      move.w          (a0),d0
+Line 68 ERROR: Undefined symbol
+00000096  EC48                      68      lsr             #FRAC_BITS,d0
+Line 69 ERROR: Undefined symbol
+00000098  B07C BD16                 69      cmp.w           #SCREEN_WIDTH,d0
+0000009C  6C00 0030                 70      bge             ClearBullet
+000000A0                            71          
+000000A0                            72  MoveBullet:
+000000A0  7001                      73      move.l          #1,d0
+000000A2  7201                      74      move.l          #1,d1
+000000A4  0650 00C8                 75      add.w           #BULLET_SPEED,(a0)
+000000A8  7404                      76      move.l          #BULLET_WIDTH,d2
+000000AA  7604                      77      move.l          #BULLET_HEIGHT,d3
+000000AC  3810                      78      move.w          (a0),d4
+Line 79 ERROR: Undefined symbol
+000000AE  EC4C                      79      lsr             #FRAC_BITS,d4
+000000B0  3A28 0002                 80      move.w          2(a0),d5
+Line 81 ERROR: Undefined symbol
+000000B4  EC4D                      81      lsr             #FRAC_BITS,d5
+000000B6  2248                      82      move.l          a0,a1
+000000B8  41F9 000001A2             83      lea             BulletImg,a0
+Line 84 ERROR: Undefined symbol
+000000BE  4EB9 004DBD16             84      jsr             InitImage
+000000C4  2049                      85      move.l          a1,a0
+000000C6                            86      
+000000C6  5888                      87      add.l           #4,a0
+000000C8                            88      
+000000C8  51CF FFBA                 89      dbra            d7,UpdateBulletsInner
+000000CC                            90      
+Line 91 ERROR: Undefined symbol
+000000CC                            91      movem.l         (a7)+,ALL_REG
+000000CC  4E75                      92      rts
+000000CE                            93      
+000000CE                            94  ClearBullet:
+000000CE  2C07                      95      move.l          d7,d6
+000000D0  2248                      96      move.l          a0,a1
+000000D2                            97      
+000000D2                            98  ShiftPlayerBulletArray:
+000000D2  20E8 0004                 99      move.l          4(a0),(a0)+
+000000D6  51CE FFFA                100      dbra            d6,ShiftPlayerBulletArray
+000000DA                           101      
+000000DA  217C FFFFFFFF FFFC       102      move.l          #$FFFFFFFF,-4(a0)
+000000E2  5379 00000278            103      sub.w           #1,NumLivePlayerBullets
+000000E8  5279 0000027A            104      add.w           #1,NumDeadPlayerBullets
+000000EE  2049                     105      move.l          a1,a0
+000000F0  51CF FF92                106      dbra            d7,UpdateBulletsInner
+000000F4                           107  
+000000F4                           108  EndUpdateBullets:  
+Line 109 ERROR: Undefined symbol
+000000F4                           109      movem.l         (a7)+,ALL_REG
+000000F4  4E75                     110      rts
+000000F6                           111      
+000000F6                           112  ;COLLISIONS CURRENTLY NOT WORKING AND FIRING
+000000F6                           113  CheckPlayerBulletCollision:
+Line 114 ERROR: Undefined symbol
+000000F6                           114      movem.l         ALL_REG,-(a7)
+000000F6  4287                     115      clr.l           d7
+Line 116 ERROR: Undefined symbol
+000000F8  3E39 004DBD16            116      move.w          NumActiveEnemies,d7
+000000FE  5347                     117      sub.w           #1,d7
+Line 118 ERROR: Undefined symbol
+00000100  43F9 004DBD16            118      lea             EnemyPosArray,a1
+00000106                           119      
+00000106                           120  CheckPlayerBulletCollisionInner:
+00000106  4280                     121      clr.l           d0
+00000108  3010                     122      move.w          (a0),d0
+0000010A  4281                     123      clr.l           d1
+0000010C  3211                     124      move.w          (a1),d1
+Line 125 ERROR: Undefined symbol
+0000010E  0640 BD16                125      add.w           #BULLET_WIDTH<<FRAC_BITS,d0
+00000112  B240                     126      cmp.w           d0,d1
+00000114  6E00 006A                127      bgt             CheckPlayerBulletCollisionEnd
+00000118                           128      
+Line 129 ERROR: Undefined symbol
+00000118  0440 BD16                129      sub.w           #BULLET_WIDTH<<FRAC_BITS,d0
+Line 130 ERROR: Invalid syntax
+0000011C                           130      add.w           #ENEMY_WIDTH<<FRAC_BITS,d1
+0000011C  B240                     131      cmp.w           d0,d1
+0000011E  6D00 0060                132      blt             CheckPlayerBulletCollisionEnd
+00000122                           133      
+00000122  3028 0002                134      move.w          2(a0),d0
+00000126  3229 0002                135      move.w          2(a1),d1
+Line 136 ERROR: Undefined symbol
+0000012A  0640 BD16                136      add.w           #BULLET_HEIGHT<<FRAC_BITS,d0
+0000012E  B240                     137      cmp.w           d0,d1
+00000130  6E00 004E                138      bgt             CheckPlayerBulletCollisionEnd
+00000134                           139      
+Line 140 ERROR: Undefined symbol
+00000134  0440 BD16                140      sub.w           #BULLET_HEIGHT<<FRAC_BITS,d0
+Line 141 ERROR: Invalid syntax
+00000138                           141      add.w           #ENEMY_HEIGHT<<FRAC_BITS,d1
+00000138  B240                     142      cmp.w           d0,d1
+0000013A  6D00 0044                143      blt             CheckPlayerBulletCollisionEnd
+0000013E                           144      
+Line 145 ERROR: Undefined symbol
+0000013E  303C BD16                145      move.w          #SCREEN_WIDTH,d0
+00000142  5840                     146      add.w           #BULLET_WIDTH,d0
+Line 147 ERROR: Undefined symbol
+00000144  ED48                     147      lsl             #FRAC_BITS,d0
+00000146  3080                     148      move.w          d0,(a0)
+00000148                           149      
+00000148  3211                     150      move.w          (a1),d1
+Line 151 ERROR: Undefined symbol
+0000014A  EC49                     151      lsr             #FRAC_BITS,d1
+0000014C  3429 0002                152      move.w          2(a1),d2
+Line 153 ERROR: Undefined symbol
+00000150  EC4A                     153      lsr             #FRAC_BITS,d2
+Line 154 ERROR: Undefined symbol
+00000152  263C 004DBD16            154      move.l          #ENEMY_WIDTH,d3
+Line 155 ERROR: Undefined symbol
+00000158  283C 004DBD16            155      move.l          #ENEMY_HEIGHT,d4
+0000015E  D681                     156      add.l           d1,d3
+00000160  D882                     157      add.l           d2,d4
+00000162                           158      
+Line 159 ERROR: Undefined symbol
+00000162  4EB9 004DBD16            159      jsr             InvalArea
+Line 160 ERROR: Undefined symbol
+00000168  203C 004DBD16            160      move.l          #ENEMY_VALUE,d0
+Line 161 ERROR: Undefined symbol
+0000016E  4EB9 004DBD16            161      jsr             AddScore
+00000174                           162      
+00000174  32BC F000                163      move.w          #$F000,(a1)
+00000178                           164      
+Line 165 ERROR: Symbol value differs between first and second pass
+00000178                           165  CheckPlayerBulletCollisionEnd:
+00000178  5849                     166      add.w           #4,a1
+0000017A  51CF FF8A                167      dbra            d7,CheckPlayerBulletCollisionInner
+0000017E                           168      
+Line 169 ERROR: Undefined symbol
+0000017E                           169      movem.l         (a7)+,ALL_REG
+0000017E  4E75                     170      rts
+00000180                           171      
+Line 172 ERROR: Symbol value differs between first and second pass
+00000180                           172  InvalBullet:
+00000180  3210                     173      move.w          (a0),d1
+Line 174 ERROR: Undefined symbol
+00000182  EC49                     174      lsr             #FRAC_BITS,d1
+00000184  3428 0002                175      move.w          2(a0),d2
+Line 176 ERROR: Undefined symbol
+00000188  EC4A                     176      lsr             #FRAC_BITS,d2
+0000018A  7604                     177      move.l          #BULLET_WIDTH,d3
+0000018C  7804                     178      move.l          #BULLET_HEIGHT,d4
+0000018E  D681                     179      add.l           d1,d3
+00000190  D882                     180      add.l           d2,d4
+00000192                           181      
+Line 182 ERROR: Undefined symbol
+00000192  4EB9 004DBD16            182      jsr             InvalArea
+00000198  4E75                     183      rts
+0000019A                           184  
+0000019A                           185  BulletImg               incbin  'Bullet.bmp'
+Line 186 ERROR: Symbol value differs between first and second pass
+0000019A                           186  BulletImg               incbin  'Bullet.bmp'
+Line 187 ERROR: Symbol value differs between first and second pass
+00000248                           187  PlayerBullets           ds.w    MAX_PLAYER_BULLETS*2
+Line 188 ERROR: Symbol value differs between first and second pass
+00000248=                          188  NumLivePlayerBullets    dc.w    0
+Line 189 ERROR: Symbol value differs between first and second pass
+00000248=                          189  NumDeadPlayerBullets    dc.w    MAX_PLAYER_BULLETS
+Line 190 ERROR: Symbol value differs between first and second pass
+00000248=                          190  PlayerFireTimer         dc.w    0
+00000248                           191  
+00000248                           192  
+00000248                           193  
+00000248                           194  
+00000248                           195  
+Line 196 WARNING: END directive missing, starting address not set
+
+45 errors detected
+1 warning generated
+
+
+SYMBOL TABLE INFORMATION
+Symbol-name         Value
+-------------------------
+BULLETIMG           1A2
+BULLET_HEIGHT       4
+BULLET_SPEED        C8
+BULLET_WIDTH        4
+CHECKPLAYERBULLETCOLLISION  F6
+CHECKPLAYERBULLETCOLLISIONEND  180
+CHECKPLAYERBULLETCOLLISIONINNER  106
+CLEARBULLET         CE
+DRAW_ELLIPSE_TRAP_CODE  58
+ENDPLAYERFIRE       60
+ENDUPDATEBULLETS    F4
+INVALBULLET         188
+MAX_PLAYER_BULLETS  A
+MOVEBULLET          A0
+NUMDEADPLAYERBULLETS  27A
+NUMLIVEPLAYERBULLETS  278
+PLAYERBULLETS       250
+PLAYERFIRE          0
+PLAYERFIRETIMER     27C
+PLAYER_FIRE_TIMER   A
+SHIFTPLAYERBULLETARRAY  D2
+UPDATEBULLETS       68
+UPDATEBULLETSINNER  84

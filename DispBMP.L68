@@ -1,0 +1,220 @@
+00001000 Starting Address
+Assembler used: EASy68K Editor/Assembler v5.16.01
+Created On: 9/29/2018 5:41:52 PM
+
+00000000                             1  *-----------------------------------------------------------
+00000000                             2  * Title      : Display bmp
+00000000                             3  * Written by : Joshua Newell
+00000000                             4  * Date       : 9/19/2018
+00000000                             5  * Description: Load a bitmip into memory and display it by looping through its internal pixel array
+00000000                             6  * NOTE       : Currently only supports 24-bit color depth
+00000000                             7  *-----------------------------------------------------------
+00000000                             8  ALL_REGISTERS       REG d0-d7/a0-a6
+00000000  =00000104                  9  CORNER_X            EQU 260         ;Parameters for display bounds
+00000000  =000000FA                 10  CORNER_Y            EQU 250
+00000000  =00000010                 11  CHUNK_WIDTH         EQU 16
+00000000  =00000010                 12  CHUNK_HEIGHT        EQU 16
+00000000  =00000032                 13  SCREEN_X            EQU 50
+00000000  =00000032                 14  SCREEN_Y            EQU 50
+00000000                            15  
+00000000  =0000000A                 16  START_PIXELS_OFFSET EQU 10          ;Constant offsets within bitmap file format to get information
+00000000  =00000012                 17  WIDTH_OFFSET        EQU 18
+00000000  =00000016                 18  HEIGHT_OFFSET       EQU 22
+00000000  =0000001C                 19  DEPTH_OFFSET        EQU 28
+00000000                            20  
+00000000  =00000008                 21  ONE_BYTE            EQU 8           ;Used for bit shift calculations
+00000000                            22  
+00000000  =0000000E                 23  CORNER_X_OFFSET     EQU 14          ;Stack parameters
+00000000  =0000000C                 24  CORNER_Y_OFFSET     EQU 12
+00000000  =0000000A                 25  CHUNK_WIDTH_OFFSET  EQU 10
+00000000  =00000008                 26  CHUNK_HEIGHT_OFFSET EQU 8
+00000000  =00000006                 27  SCREEN_X_OFFSET     EQU 6
+00000000  =00000004                 28  SCREEN_Y_OFFSET     EQU 4
+00000000                            29  
+00000000  =0000424D                 30  BITMAP_SIGNATURE    EQU 'BM'        ;Information to check if input file is currently supported
+00000000  =00000018                 31  SUPPORTED_DEPTH     EQU 24
+00000000                            32  
+00000000  =00000050                 33  TASK_PEN_COLOR      EQU 80          ;SimI/O TRAP codes
+00000000  =00000052                 34  TASK_DRAW_PIXEL     EQU 82
+00000000  =00000021                 35  TASK_SET_RES        EQU 33
+00000000                            36     
+00000000                            37  InitImage:
+00000000  48E7 FFFE                 38      movem.l ALL_REGISTERS,-(a7)
+00000004  0C50 424D                 39      cmp     #BITMAP_SIGNATURE,(a0)              ;Check if using a bitmap file by signature
+00000008  6600 0024                 40      bne     FINISH                              ;If not, exit
+0000000C                            41          
+0000000C  0C28 0018 001C            42      cmp.b   #SUPPORTED_DEPTH,DEPTH_OFFSET(a0)   ;Check that color depth is supported
+00000012  6600 001A                 43      bne     FINISH                              ;If not, exit
+00000016                            44      
+00000016  3F00                      45      move.w  d0,-(a7)                            ;Top left corner X
+00000018  3F01                      46      move.w  d1,-(a7)                            ;Top left corner Y
+0000001A                            47      
+0000001A  3F02                      48      move.w  d2,-(a7)                            ;Chunk width
+0000001C  3F03                      49      move.w  d3,-(a7)                            ;Chunk height
+0000001E                            50      
+0000001E  3F04                      51      move.w  d4,-(a7)                            ;Screen position to draw X
+00000020  3F05                      52      move.w  d5,-(a7)                            ;Screen position to draw Y
+00000022                            53  
+00000022  4EB9 00000034             54      jsr     DrawImage
+00000028                            55      
+00000028  DFFC 0000000C             56      add.l   #12,a7                              ;Unroll stack
+0000002E                            57      
+0000002E                            58  FINISH:    
+0000002E  4CDF 7FFF                 59      movem.l (a7)+,ALL_REGISTERS
+00000032  4E75                      60      rts
+00000034                            61  
+00000034                            62  DrawImage:
+00000034  2028 000A                 63      move.l  START_PIXELS_OFFSET(a0),d0          ;Get beginning of pixel array in the file
+00000038  4EB9 00000126             64      jsr     SwitchEndian
+0000003E  23C0 0000012E             65      move.l  d0,StartPixels
+00000044                            66      
+00000044  2028 0012                 67      move.l  WIDTH_OFFSET(a0),d0                 ;Get the width of the image
+00000048  4EB9 00000126             68      jsr     SwitchEndian
+0000004E  23C0 00000132             69      move.l  d0,ImgWidth
+00000054                            70      
+00000054                            71      ;Bitmap format ensures row size is divisible by 4, if not it adds padding bits to the end of the row
+00000054                            72      ;Must account for these in loops, this will get the amount of padding per row so we can account for it
+00000054  2200                      73      move.l  d0,d1
+00000056  C27C 0003                 74      and     #3,d1
+0000005A  7004                      75      move.l  #4,d0
+0000005C  9081                      76      sub.l   d1,d0
+0000005E  C07C 0003                 77      and     #3,d0
+00000062  33C0 0000013A             78      move.w  d0,RowPadding
+00000068  47F9 0000013A             79      lea     RowPadding,a3
+0000006E                            80      
+0000006E  2028 001C                 81      move.l  DEPTH_OFFSET(a0),d0                 ;Get the color depth from the file
+00000072  4EB9 00000126             82      jsr     SwitchEndian
+00000078  E648                      83      lsr     #3,d0                               ;Divide by 8 to convert from bit depth to bytes, shift right 3 bits
+0000007A  33C0 0000013E             84      move.w  d0,BytesPerPixel
+00000080                            85      
+00000080  2028 0016                 86      move.l  HEIGHT_OFFSET(a0),d0                ;Get the height of the image
+00000084  4EB9 00000126             87      jsr     SwitchEndian
+0000008A  23C0 00000136             88      move.l  d0,ImgHeight
+00000090                            89      
+00000090  D1F9 0000012E             90      add.l   StartPixels,a0                      ;Set the location of the pixel array as our index
+00000096                            91  
+00000096  43F9 00000136             92      lea     ImgHeight,a1                        ;Get image width and height from memory and store references
+0000009C  45F9 00000132             93      lea     ImgWidth,a2
+000000A2                            94  
+000000A2  2012                      95      move.l  (a2),d0                             ;Add row width in pixels to padding
+000000A4  906F 000A                 96      sub.w   CHUNK_WIDTH_OFFSET(a7),d0           ;Subtract chunk width in pixels from this sum
+000000A8  C0F9 0000013E             97      mulu    BytesPerPixel,d0                    ;Multiply by bytes per pixel
+000000AE  D053                      98      add.w   (a3),d0                             ;In bitmap pixel arrays there is padding to make each row divisible by 4, add to the index to skip
+000000B0  33C0 0000013C             99      move.w  d0,RowPaddingByteOffset
+000000B6                           100      
+000000B6  302F 000E                101      move.w  CORNER_X_OFFSET(a7),d0              ;Set inital x position in pixel array
+000000BA  C0F9 0000013E            102      mulu    BytesPerPixel,d0
+000000C0  D1C0                     103      add.l   d0,a0
+000000C2                           104      
+000000C2  2011                     105      move.l  (a1),d0                             ;Set initial y position in pixel array
+000000C4  906F 000C                106      sub.w   CORNER_Y_OFFSET(a7),d0              ;Get image height - starting y - chunk height
+000000C8  906F 0008                107      sub.w   CHUNK_HEIGHT_OFFSET(a7),d0
+000000CC  2212                     108      move.l  (a2),d1                             ;Multiply by total number of bytes per row to move down correct number of rows
+000000CE  C2F9 0000013E            109      mulu    BytesPerPixel,d1                    ;Multiply the number of pixels by color depth to get number of bytes per row
+000000D4  D253                     110      add.w   (a3),d1                             ;Add padding bytes here
+000000D6  C0C1                     111      mulu    d1,d0
+000000D8  D1C0                     112      add.l   d0,a0                               ;Add BytesPerRow * Starting Y to get to starting pixel index
+000000DA                           113      
+000000DA  536F 000A                114      sub.w   #1,CHUNK_WIDTH_OFFSET(a7)           ;Comparisons are made with 0 so subtract 1 from indices
+000000DE  536F 0008                115      sub.w   #1,CHUNK_HEIGHT_OFFSET(a7)
+000000E2  3C2F 000A                116      move.w  CHUNK_WIDTH_OFFSET(a7),d6           ;Set indices for loops for rows and columns
+000000E6  3E2F 0008                117      move.w  CHUNK_HEIGHT_OFFSET(a7),d7
+000000EA                           118      
+000000EA  362F 000A                119      move.w  CHUNK_WIDTH_OFFSET(a7),d3           ;Move data from stack to registers for faster calculations
+000000EE  382F 0006                120      move.w  SCREEN_X_OFFSET(a7),d4
+000000F2  3A2F 0004                121      move.w  SCREEN_Y_OFFSET(a7),d5
+000000F6                           122  
+000000F6                           123  RowLoop:
+000000F6  4241                     124      clr.w   d1                                  ;Clear lower word of d0, this is faster than clearing the long and equally safe
+000000F8  1218                     125      move.b  (a0)+,d1                            ;Get first byte of color (BLUE)
+000000FA  4841                     126      swap    d1                                  ;Swap the words to get the BLUE value in the correct byte position for Easy68k
+000000FC  1218                     127      move.b  (a0)+,d1                            ;Get the second byte of color (GREEN)
+000000FE  E149                     128      lsl     #ONE_BYTE,d1                        ;Shift 1 byte to get the GREEN value in the correct position
+00000100  1218                     129      move.b  (a0)+,d1                            ;Get the third byte of color (RED)
+00000102                           130      
+00000102                           131  ;TODO 32 bit color: XOR with alpha bits, if 00, skip pixel
+00000102  7050                     132      move.l  #TASK_PEN_COLOR,d0                  ;Set the pen color to the loaded pixel color
+00000104  4E4F                     133      TRAP    #15
+00000106                           134      
+00000106  3203                     135      move.w  d3,d1                               ;Get the current element of the row
+00000108  9246                     136      sub.w   d6,d1
+0000010A  D244                     137      add.w   d4,d1                               ;Adjust to the indicated screen position X
+0000010C                           138      
+0000010C  2407                     139      move.l  d7,d2                               ;Get the current row
+0000010E  D445                     140      add.w   d5,d2                               ;Adjust to the indicated screen position Y
+00000110                           141      
+00000110  7052                     142      move.l  #TASK_DRAW_PIXEL,d0                 ;Draw the pixel at the correct position
+00000112  4E4F                     143      TRAP    #15
+00000114                           144      
+00000114  51CE FFE0                145      dbra    d6,RowLoop                          ;If not at the end of the current row, loop again
+00000118                           146      
+00000118  D0F9 0000013C            147      add.w   RowPaddingByteOffset,a0             ;Adjust index to beginning of next row of chunk
+0000011E  3C03                     148      move.w  d3,d6                               ;Reset the x index to the width-1
+00000120  51CF FFD4                149      dbra    d7,RowLoop
+00000124                           150  
+00000124  4E75                     151      rts
+00000126                           152  
+00000126                           153  ;Switch Endianness of d0
+00000126                           154  ;Consider the register as 4 bytes, a,b,c,d
+00000126                           155  ;Reorder contents to d,c,b,a
+00000126                           156  SwitchEndian:
+00000126  E058                     157      ror     #ONE_BYTE,d0
+00000128  4840                     158      swap    d0
+0000012A  E058                     159      ror     #ONE_BYTE,d0
+0000012C                           160      
+0000012C  4E75                     161      rts
+0000012E                           162      
+0000012E                           163  StartPixels             ds.l    1
+00000132                           164  ImgWidth                ds.l    1
+00000136                           165  ImgHeight               ds.l    1
+0000013A                           166  RowPadding              ds.w    1
+0000013C                           167  RowPaddingByteOffset    ds.w    1
+0000013E                           168  BytesPerPixel           ds.w    1
+00000140                           169  
+00000140                           170  
+00000140                           171  
+00000140                           172  
+00000140                           173  
+Line 174 WARNING: END directive missing, starting address not set
+
+No errors detected
+1 warning generated
+
+
+SYMBOL TABLE INFORMATION
+Symbol-name         Value
+-------------------------
+ALL_REGISTERS       7FFF
+BITMAP_SIGNATURE    424D
+BYTESPERPIXEL       13E
+CHUNK_HEIGHT        10
+CHUNK_HEIGHT_OFFSET  8
+CHUNK_WIDTH         10
+CHUNK_WIDTH_OFFSET  A
+CORNER_X            104
+CORNER_X_OFFSET     E
+CORNER_Y            FA
+CORNER_Y_OFFSET     C
+DEPTH_OFFSET        1C
+DRAWIMAGE           34
+FINISH              2E
+HEIGHT_OFFSET       16
+IMGHEIGHT           136
+IMGWIDTH            132
+INITIMAGE           0
+ONE_BYTE            8
+ROWLOOP             F6
+ROWPADDING          13A
+ROWPADDINGBYTEOFFSET  13C
+SCREEN_X            32
+SCREEN_X_OFFSET     6
+SCREEN_Y            32
+SCREEN_Y_OFFSET     4
+STARTPIXELS         12E
+START_PIXELS_OFFSET  A
+SUPPORTED_DEPTH     18
+SWITCHENDIAN        126
+TASK_DRAW_PIXEL     52
+TASK_PEN_COLOR      50
+TASK_SET_RES        21
+WIDTH_OFFSET        12
